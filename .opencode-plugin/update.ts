@@ -29,7 +29,7 @@ import { writeUpdateDiff } from "./diff.js"
 const SKILLS_DIR = "skills"
 const AGENTS_DIR = "agents"
 const SCRIPTS_DIR = "scripts"
-const COMMANDS_DIR = "command"
+const COMMANDS_DIR = "commands"
 
 /** Tracks files per category: added (new on disk), skipped (preserved, needs user decision). */
 export interface DiffEntry {
@@ -163,12 +163,20 @@ export function hasPendingUpdate(target: string): boolean {
   return existsSync(resolve(target, ".engram-update.jsonc"))
 }
 
-/** Reads and parses .engram-update.jsonc. Returns null if absent or corrupt JSON. */
+/** Reads and parses .engram-update.jsonc. Returns null if absent or corrupt JSON. Normalises old `command` key to `commands`. */
 export function readManifest(target: string): Manifest | null {
   const f = resolve(target, ".engram-update.jsonc")
   if (!existsSync(f)) return null
   try {
-    return JSON.parse(readFileSync(f, "utf-8")) as Manifest
+    const m = JSON.parse(readFileSync(f, "utf-8")) as Manifest
+    const fix = (arr: string[]) => arr.map(k => k === "command" ? "commands" : k)
+    if (m.categories.command && !m.categories.commands) {
+      m.categories.commands = m.categories.command
+      delete m.categories.command
+    }
+    if (m.remaining) m.remaining = fix(m.remaining)
+    if (m.applied) m.applied = fix(m.applied)
+    return m
   } catch {
     return null
   }

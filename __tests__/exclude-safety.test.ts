@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { tmpdir } from "node:os"
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { syncProjectState } from "../.opencode/install"
+import { syncProjectState } from "../.opencode-plugin/install"
 
 // syncAgentsExclude rewrites a USER-OWNED file by splitting on newline and
 // rejoining. That is the riskiest edit in v1.2.0 — these hold it honest.

@@ -14,7 +14,7 @@
  * On fresh install, no manifest — bridge registers agents/commands/skills in config hook.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync, rmdirSync } from "node:fs"
 import { resolve, basename } from "node:path"
 import { execSync } from "node:child_process"
 import { parseFrontmatter } from "./parse-frontmatter.js"
@@ -415,13 +415,21 @@ Arguments: $ARGUMENTS`,
   },
 }
 
-/** Writes learn, review-loop, and coach command .md files to target/command/. Always overwrites. */
+/** Writes learn, review-loop, and coach command .md files to target/commands/. Always overwrites. Removes legacy Engram files from target/command/ if present. */
 function generateCommands(target: string, log: (msg: string) => void) {
-  const commandsDir = resolve(target, "command")
+  const commandsDir = resolve(target, "commands")
   mkdirSync(commandsDir, { recursive: true })
   for (const [name, def] of Object.entries(COMMANDS_DEF)) {
     const content = `---\ndescription: ${def.description}\n---\n\n${def.template.trimEnd()}\n`
     writeFileSync(resolve(commandsDir, `${name}.md`), content)
+  }
+  const legacyDir = resolve(target, "command")
+  if (existsSync(legacyDir)) {
+    for (const name of Object.keys(COMMANDS_DEF)) {
+      const f = resolve(legacyDir, `${name}.md`)
+      if (existsSync(f)) unlinkSync(f)
+    }
+    try { rmdirSync(legacyDir) } catch {}
   }
   log(`Engram: generated commands to ${commandsDir}`)
 }
