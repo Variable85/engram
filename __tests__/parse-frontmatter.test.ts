@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseFrontmatter } from "../.opencode/parse-frontmatter"
+import { parseFrontmatter } from "../.opencode-plugin/parse-frontmatter"
 
 describe("parseFrontmatter", () => {
   it("parses YAML frontmatter with description", () => {

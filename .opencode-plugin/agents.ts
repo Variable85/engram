@@ -16,9 +16,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { parseFrontmatter } from "./parse-frontmatter.js"
 
-/** Finds the agents directory. Checks root/agents first, then .opencode/agents (post-extract). */
+/** Finds the agents directory. */
 export function resolveAgentsDir(root: string): string | null {
-  const candidates = [resolve(root, "agents"), resolve(root, ".opencode", "agents")]
+  const candidates = [resolve(root, "agents")]
   for (const dir of candidates) {
     if (existsSync(dir)) return dir
   }

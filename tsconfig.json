@@ -8,7 +8,7 @@
     "skipLibCheck": true
   },
   "include": [
-    ".opencode/**/*.ts",
+    ".opencode-plugin/**/*.ts",
     "hooks/**/*.ts",
     "__tests__/**/*.ts"
   ]

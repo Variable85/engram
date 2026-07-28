@@ -16,9 +16,9 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "main": "./.opencode/index.ts",
+  "main": "./.opencode-plugin/index.ts",
   "exports": {
-    ".": "./.opencode/index.ts"
+    ".": "./.opencode-plugin/index.ts"
   },
   "keywords": [
     "opencode",
@@ -31,7 +31,7 @@
     "opencode": ">=1.0.0"
   },
   "files": [
-    ".opencode",
+    ".opencode-plugin",
     "hooks",
     "skills",
     "agents",
