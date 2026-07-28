@@ -31,7 +31,13 @@ def build(r, home):
             nodes["n%d"%i] = {"claim":rnd(r),"probe":rnd(r),"state":r.choice(["new","review","learning",rnd(r)]),
                 "fsrs":r.choice([{"s":rnd(r),"d":rnd(r),"due":rnd(r),"last":rnd(r),"reps":rnd(r),"lapses":rnd(r)}, rnd(r)]),
                 "retired": rnd(r), "edges": r.choice([{"requires":rnd(r)}, rnd(r)]),
-                "kind": rnd(r), "practice": rnd(r), "transfer_probe": rnd(r)}
+                "kind": rnd(r), "practice": rnd(r), "transfer_probe": rnd(r),
+                # v1.10: `doctor` now scans the grading contract (probe_rubric_gaps), so
+                # `rubric` and `revised` are read paths and must be fuzzed. Adding the
+                # feature without adding its fields here is how a gate comes back green
+                # about code it never executed (§4.7).
+                "rubric": r.choice([rnd(r), [rnd(r)], ["connects it to scale", rnd(r)]]),
+                "revised": rnd(r)}
         g = {"topic":t,"title":rnd(r),"order":r.choice([list(nodes), rnd(r)]),
              "nodes": r.choice([nodes, rnd(r)]) if r.random()<0.85 else nodes, "goal":rnd(r)}
         json.dump(g, open(os.path.join(home,"graphs","%s.json"%t),"w"))
@@ -39,7 +45,10 @@ def build(r, home):
             for i in range(r.randint(0,3)):
                 f.write(json.dumps({"id":"r%d"%i,"ts":rnd(r),"topic":t,"node":rnd(r),
                     "kind":r.choice(["encode","review","transfer",rnd(r)]),"grade":rnd(r),
-                    "rating":rnd(r),"due_next":rnd(r),"s_after":rnd(r),"confidence":rnd(r)})+"\n")
+                    "rating":rnd(r),"due_next":rnd(r),"s_after":rnd(r),"confidence":rnd(r),
+                    # v1.10: doctor cross-references assessor-flagged criteria out of the
+                    # receipt log, so a hand-edited `probe_gap` is a read path too.
+                    "probe_gap":rnd(r)})+"\n")
     with open(os.path.join(home,"sessions.jsonl"),"w") as f:
         f.write(json.dumps({"ts":rnd(r),"kind":rnd(r)})+"\n")
 

@@ -3,10 +3,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.1-6D4AA8.svg" alt="Version 1.9.1">
+  <img src="https://img.shields.io/badge/version-1.10.0-6D4AA8.svg" alt="Version 1.10.0">
   <a href="https://www.npmjs.com/package/opencode-engram-learning"><img src="https://img.shields.io/npm/v/opencode-engram-learning?label=npm&color=6D4AA8" alt="npm package"></a>
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/selftest-279%2F279-3E7D5A.svg" alt="279/279 checks">
+  <img src="https://img.shields.io/badge/selftest-302%2F302-3E7D5A.svg" alt="302/302 checks">
   <a href="gold/assessor-gold.jsonl"><img src="https://img.shields.io/badge/grader%20inflations-0%2F258-3E7D5A.svg" alt="0 of 258 blind judgments graded up, on the shipping spec"></a>
   <img src="https://img.shields.io/badge/scheduler-FSRS--4.5-6D4AA8.svg" alt="FSRS-4.5">
   <a href="CONTRIBUTING-DATA.md"><img src="https://img.shields.io/badge/data-100%25%20local-3E7D5A.svg" alt="100% local — the engine has no network code, proven by a permanent selftest"></a>
@@ -354,6 +354,7 @@ The model never does calendar math; this does:
 | `model` / `misconception` | open learner model · error catalog |
 | **`propose` / `adaptations`** | at most 3 engine-justified adaptations, each with its evidence and grade (read-only) · the append-only ledger of every change, why, and that it is reversible (Article 12) |
 | **`experiment start\|assign\|status\|settle`** | n-of-1 trials done properly: **randomized** (seeded, reproducible) · **stratified** (kills the material-vs-medium confound) · **pre-registered** · **powered** (15/arm; the floor moves with the metric — 8 for transfer, 10 for slip-share) · and **the engine computes the verdict** — `--verdict` is refused |
+| **`edit-node --topic T --node N --file F`** | repair ONE node’s grading contract in place — `probe`, `rubric`, `transfer_probe` (by file, the shell-safe channel; inline flags for hand use). Schedules, receipts and registrations are untouched; the node records that its contract moved and how many receipts predate it |
 | `focus on\|off\|status` | toggle the ADHD Focus profile (Sprint default, growth every review, always-on amnesty) |
 | `visuals eager\|threshold\|off\|status` | the explorables dial: every high-affordance concept · portal concepts only (default) · none |
 | `artifact set\|clear\|list` | register a built explorable on its node (validated; powers regeneration tracking + the medium comparison) |
@@ -367,7 +368,7 @@ The model never does calendar math; this does:
 | **`refit`** | fit the schedule to your measured memory: the interval multiplier (≥50 reviews), then **your own FSRS parameters** — S0 at 64 usable reviews, the full vector at 400, and **a fit that does not beat your current one is refused** |
 | **`export [--topic T]`** | a **text-stripped**, **attributed** receipt bundle written **to a file**. Whitelist-constructed — there is no code path by which a production could leave. **Refuses** if your grader is unaudited |
 | `session-start` / `log-session` | ambient nudge (hook) · session telemetry |
-| `selftest` | 279 checks over the FSRS math, state machine, adherence/retention arithmetic, the grader-audit statistics, and every hardened boundary |
+| `selftest` | 302 checks over the FSRS math, state machine, adherence/retention arithmetic, the grader-audit statistics, and every hardened boundary |
 
 </details>
 

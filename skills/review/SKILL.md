@@ -77,6 +77,17 @@ The `due` payload gives you `probe`, `claim` (canonical answer), and `rubric` �
    **If an experiment arm applies to this node (v1.9)**, honor it here: `experiment status` names the active design, and `probe-variation`'s `varied-probe` arm means you **rephrase** the probe — different opening, different framing, **same rubric criteria, same thing asked**. Never add or drop a required element; difficulty drift is the named threat to that design's validity. The `stored-probe` arm gets `node.probe` verbatim, always, for the life of the experiment. Arm-assigned productions are **stashed for the blind assessor**, not self-graded, so both arms are scored by one oracle.
 2. They produce. (Silence is fine; "no idea" is an answer — treat as lapse, warmly.) **Then collect confidence by calling `AskUserQuestion` (the four-band Confidence picker — exact call in grammar ⚠), BEFORE the reveal.** Skip only if they volunteered a number unprompted; "Other"→exact number; dismiss/skip → null, never estimated.
 3. Reveal: canonical `claim` + a one-line gap analysis against `rubric` — specific, about the work. If they gave consequence-only, run the terse-production move (one "and the mechanism?" — grammar file) *before* the reveal. (Confidence picker, if any, comes first — sureness before feedback.)
+
+   **⚠ Before you mark a criterion missed, check that the probe asked for it (v1.10, issue #13).** Read the probe you just served, alone, and ask what the best answer to *that exact question* would **necessarily** contain — the same one bar the assessor uses. If a criterion would not reliably appear in it — it wants a consequence nobody was asked to draw, or its content is already sitting in the probe's own stem so it could only be earned by repeating the question back — then the card is broken, not the learner. Judge that from the probe alone, never from what they happened to say: a criterion they volunteered unasked is still unfair. Say so in one line, grade the production exactly as it stands (an unfair criterion never lifts a grade — that is how a wrong number gets believed), and repair the card before moving on:
+
+   ```bash
+   python3 "$ENGRAM" edit-node --topic <t> --node <n> --file <tmpfile.json>
+   # tmpfile.json = {"probe": "<the same question, now also asking for what that criterion marks>"}
+   ```
+
+   Write the file first — a rewritten probe is free text you just authored, and the shell-safety rule covers it exactly as it covers a learner's production.
+
+   Schedules, receipts and registrations are untouched by this; only the contract moves. On assessor-graded items the same signal arrives as `probe_gap` in the returned item — treat it identically. `doctor` lists every node in this state under `probe_gaps` if the learner would rather sweep them all at once.
 4. Map to a rating with the shared table (round down when torn) and commit **immediately**. Pass the learner's answer via a file (write it, then reference it) so their text never lands on the command line:
 
 ```bash

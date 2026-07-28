@@ -161,6 +161,18 @@ python3 "$ENGRAM" stash clear
 python3 "$ENGRAM" misconception add --topic <t> --node <n> --description "<the assessor's line, verbatim>"
 ```
 
+**If an item comes back with `probe_gap` (v1.10, issue #13), the node is at fault — say so, and fix it.** It means the assessor found a rubric criterion the *probe never asked for*, so the learner was marked down for something they could not reasonably have known to include. Do not let that pass silently and do not argue the grade: name it plainly (*"criterion 3 wanted the consequence and the question never asked for one — that's the card's fault, not yours"*), then repair the card in place. Neither the schedule nor any receipt is touched:
+
+Write the repair to a file first — a rewritten probe is free text you just authored, and the shell-safety rule above covers it exactly as it covers a learner's production:
+
+```bash
+python3 "$ENGRAM" edit-node --topic <t> --node <n> --file <tmpfile.json>
+# tmpfile.json = {"probe": "<the same question, now also asking for what criterion N marks>"}
+# or narrow the contract instead: {"rubric": ["criterion 1", "criterion 2"]}
+```
+
+Do it in the session, while the learner can see the criterion that misfired — a card left mis-specified keeps scheduling reviews of material they already know, which is the actual cost. The grade itself stays exactly as the assessor set it: a `partial` earned against an unfair criterion is still what the learner produced, and inflating it would put a wrong number where it does the most damage.
+
 Relay each `feedback_line` to the learner. On a `recalled` node, the `receipt` output carries `s_before`/`s_after` — if the durability crosses a threshold (milestone, not every node; grammar file Pillar 13), add one flat growth line, never a score. On a `lapsed`/`partial`, use the absolve-not-pity register (grammar oath): normal, owed nothing, here's the path forward. If the learner disputes a grade, send the dispute (their argument + original production) back to the assessor once; log the outcome either way — appeals are calibration data.
 
 ## 5 · Capstone — **it is a NODE now, not a paragraph** (v0.8)

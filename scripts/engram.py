@@ -33,7 +33,7 @@ SCHEMA = 1
 # The one place the engine knows its own version. Read by `export`, so a shared receipt states
 # which engine produced it — a corpus of receipts from unknown engine versions is not a corpus.
 # Pinned against .claude-plugin/plugin.json by a selftest, so it cannot drift.
-ENGRAM_VERSION = "1.9.1"
+ENGRAM_VERSION = "1.10.0"
 RETENTION_DEFAULT = 0.90
 INTERVAL_MAX = 365
 RETENTION_MIN, RETENTION_MAX = 0.70, 0.97   # sane desired-retention bounds
@@ -643,6 +643,190 @@ def _requires_cycle(g):
                 return r
     return None
 
+# ── PROBE/RUBRIC COVERAGE (v1.10 — issue #13) ───────────────────────────────────────────
+#
+# The two agent specs disagreed by construction. The architect anchors the probe to the
+# claim ("a free-recall question whose answer is the claim") and leaves the rubric free to
+# ask for MORE than the claim contains. The assessor then requires ALL criteria for
+# `recalled`, rounds down when torn, and has no instruction that would let it discount a
+# criterion the probe never requested. So every mismatch resolved against the learner —
+# and not merely as a grade: the grade writes an FSRS receipt, so a mis-specified rubric
+# INFLATES REVIEW LOAD ON NODES THE LEARNER ACTUALLY KNOWS. That is a measurement defect
+# in the instrument, which is why it is worth engine code and not just a prose rule.
+#
+# Measured before this was written, over 62 architect-authored nodes in three real topics:
+# 24 (39%) carried a trailing "frames it as / connects it to / draws the consequence"
+# criterion, 19 of those in the LAST rubric slot — and in every graded receipt on such a
+# node, that criterion was the one the assessor marked missed.
+#
+# This is the DETERMINISTIC half of the fix (the architect's self-check is the other half,
+# and the assessor's `probe_gap` is the runtime half). It cannot judge meaning, so it does
+# not try: it fires on two mechanical shapes with a measured base rate, and it WARNS rather
+# than dies. A payload costs real minutes to author; a false positive must never destroy one.
+
+# THREE FAMILIES, EACH WITH ITS OWN REQUEST MARKER — and that pairing is the whole design.
+#
+# The first draft asked one probe-level question ("does this probe request any elaboration
+# at all?") and it was measurably wrong: `prompt-as-conditioning` asks *"Give the mechanism
+# that makes prompt wording effective"*, which requests a FRAMING but not a CONSEQUENCE —
+# so the framing criteria were fine and the consequence criterion was the real gap. One
+# boolean cannot say that, and it flagged all three. A criterion is only smuggled when the
+# probe requests nothing of ITS OWN KIND.
+#
+# ⚠ Every alternative is anchored `\b…\b`. The first draft wrote `connects?` unbounded,
+# which matched "least-connections" and flagged a criterion the probe plainly asked for.
+# ⚠ THE REQUEST SIDE MUST BE INFLECTED EXACTLY AS HEAVILY AS THE DEMAND SIDE.
+#
+# The first shipping draft was not, and an adversarial review falsified the property this
+# whole check lives on. The demand side had `connects?` / `consequences?` / `\w*`; the
+# request side had bare `connect` / `consequence` inside a `\b(…)\b` wrapper, so every
+# inflection mismatch became a FALSE POSITIVE. Six of seven natural repairs of one probe
+# still fired — including a probe repaired with the criterion's own verb:
+#
+#   probe: "…and what CONNECTS it to horizontal scaling?"   crit: "connects it to horizontal scaling"
+#
+# Only the single phrasing that had been hand-tuned into `_REQ_CONSEQUENCE` went silent, and
+# the selftest passed because it tested exactly that phrasing. A confirmatory test on the one
+# example the author had in mind is §4.5's fixture-agrees-by-coincidence failure wearing
+# different clothes. Also dead on arrival: `implicat` could never match, because the trailing
+# `\b` demands a non-word char after "implicat" and every real inflection continues with one.
+_REQ_CONSEQUENCE = (r"consequences?|implicat\w*|implies|imply|what\s+follows|so\s+what"
+                    r"|what\s+does\s+that\s+(mean|imply)|at\s+what\s+cost|trade-?offs?"
+                    r"|what\s+happens|what\s+is\s+gained|what\s+(it|they)\s+(buy|unlock)"
+                    r"|what\s+(does|do|would)\s+\w+(\s+\w+){0,5}\s+(buy|gain|cost|unlock|enable)")
+_REQ_FRAMING = (r"mechanisms?|how\s+(are|is|do|does|did|can|could|would|should|might)"
+                r"|what\s+makes|relate\w*|relationships?|connect\w*|frames?|framing"
+                r"|links?|distinguish\w*|differ\w*|versus|compare\w*|comparisons?"
+                r"|contrast\w*|explain\w*|explanations?")
+_REQ_WHY = (r"why|reasons?|purposes?|motivat\w*|justif\w*|rationale|explain\w*|explanations?"
+            r"|account\w*\s+for|what\s+makes|state\s+the\s+cost|at\s+what\s+cost"
+            r"|what\s+problem|(meant|intended|designed)\s+to\s+\w+"
+            r"|how\s+(are|is|do|does|did|can|could|would|should|might)")
+
+_GAP_FAMILIES = (
+    # (family, the criterion DEMANDS this, the probe REQUESTS this)
+    #
+    # ⚠ FRAMING inherits CONSEQUENCE's markers, and that asymmetry is load-bearing. A probe
+    # asking "…and what does that buy you as you add machines?" plainly requests the
+    # criterion "connects it to horizontal scaling" — the connection IS the payoff. Without
+    # the union, a probe repaired to ask for exactly the missing criterion kept warning
+    # about it, which is the worst possible behaviour for a check whose whole job is to be
+    # believed. The reverse union is NOT taken: "give the mechanism" requests a framing and
+    # says nothing about consequences, which is precisely the split that made per-family
+    # matching necessary in the first place.
+    # `notes that…` and `links?` are gone, and both were found by agents rather than by
+    # reading. `notes that X` is not a demand for elaboration — it is the rubric's way of
+    # saying "says X", and it fired on a legal criterion and on a curriculum the architect
+    # had just authored under the new self-check. `links?` matched the NOUN "link" in a
+    # topic about certificate chains ("one failing link fails the whole chain") — the same
+    # noun/verb collision as `connects?` matching "least-connections", one release later and
+    # in the fix for it. A marker that is ordinary rubric vocabulary cannot carry this check.
+    ("framing", re.compile(r"\b(frames?|framing|reframes?|connects?|relates?"
+                           r"|characteri[sz]es?)\b", re.I),
+     re.compile(r"\b(%s|%s)\b" % (_REQ_FRAMING, _REQ_CONSEQUENCE), re.I)),
+    # `so that` and `matters` were demand markers and are gone: both are ordinary rubric
+    # prose, not requests for elaboration. "sets up the burette **so that** the meniscus
+    # reads zero" is a procedure setup step, and "identifies the **matters** material to the
+    # risk" is a noun. Step rubrics were the worst-hit class before this — 4 of 6 procedure
+    # pairs in the review's set were false positives, and a check that misfires on procedure
+    # nodes is a check authors learn to scroll past.
+    ("consequence", re.compile(r"\b(draws?\s+the\s+(consequence|implication)|consequences?"
+                               r"|implications?|implies|trade-?offs?)\b", re.I),
+     re.compile(r"\b(%s)\b" % _REQ_CONSEQUENCE, re.I)),
+    # `because` is anchored to an EXPLANATORY opener rather than allowed anywhere in the
+    # criterion. Free-floating, it fired on procedure steps whose `because` is grader-facing
+    # rationale — "marks the known-good commit, **because** bisect needs both endpoints"
+    # asks the learner for the mark, not the reason.
+    ("why", re.compile(r"\b(why|reasons?|motivations?|motivates?|justif\w*|purposes?"
+                       r"|(explains?|states?|says?|gives?)\s+(\w+\s+){0,3}because)\b", re.I),
+     re.compile(r"\b(%s)\b" % _REQ_WHY, re.I)),
+)
+
+# A probe carrying an explicit elaboration verb has plainly invited a FRAMING and a WHY, so
+# neither is smuggled. It does NOT license a CONSEQUENCE, and that exemption is measured, not
+# assumed: "Why does a load balancer prefer least-connections?" requests a *reason*, and a
+# criterion demanding "the consequence for p99 tail latency as the fleet grows" is still
+# unasked. Blanketing all three families cost 0.14 recall on a 48-pair adversarial set and
+# buried one of the eight receipt-confirmed cases; leaving `consequence` live recovers both
+# for a single false positive.
+_GAP_ANY_REQUEST = re.compile(r"\b(why|explain\w*|explanations?|justif\w*|rationale"
+                              r"|account\w*\s+for)\b", re.I)
+
+def _probe_echoes(match, probe_text):
+    """True when the probe already uses the criterion's OWN demand word.
+
+    THE STRUCTURAL GUARANTEE, and the reason this exists rather than one more alternative in
+    a list: **repairing a probe with the criterion's own words must always silence it.** An
+    author reading "asks for a framing the probe never requests: *connects* it to horizontal
+    scaling" will reach for the word `connects`, and if the check then fires anyway it has
+    taught them to ignore it. Enumerated request markers can never guarantee that — the list
+    is finite and English is not, which is exactly how six of seven natural repairs kept
+    firing in the first draft. Matching the criterion's own token against the probe does
+    guarantee it, for every phrasing, including ones nobody thought of.
+
+    Errs toward SILENCE by design: a missed warning costs one unflagged node, a false one
+    costs the author's trust in every other warning."""
+    head = re.split(r"\s+", match.group(0).strip().lower())[0]
+    stem = head[:4]
+    if len(stem) < 3:
+        return False
+    return bool(re.search(r"\b" + re.escape(stem), probe_text, re.I))
+
+def probe_rubric_gaps(probe, rubric):
+    """Criteria a learner could not reasonably earn from the probe alone.
+
+    Returns a list of {"criterion": <1-based index or None>, "kind": ..., "note": ...}.
+    Pure, total, and shape-safe — `doctor` calls it over hand-editable graphs, so a
+    non-string probe or a rubric that is not a list must degrade, never brick.
+
+    Two kinds, both measured on real graphs:
+
+      `unrequested`  the criterion asks for a why / consequence / reframe and the probe
+                     requests nothing of that kind — so answering the probe completely
+                     still caps the grade below `recalled`.
+      `no-rubric`    no grading contract at all: "all criteria met" and "zero criteria met"
+                     are BOTH vacuously true, so the grade is undefined rather than
+                     generous — and an undefined grade still writes a real schedule.
+
+    ⚠ WHAT THIS DELIBERATELY DOES NOT DETECT — and why that is not an oversight.
+    The other half of issue #13 is *leak-then-demand*: the probe states the thing in its
+    stem and a criterion requires the learner to say it back (`caching` supplies
+    "trades data freshness for read speed", then asks for "frames it as a
+    freshness-vs-speed tradeoff"). A word-overlap rule for that was written, measured, and
+    CUT: a probe that asks "what does the model condition on?" shares nearly every content
+    word with the criterion that answers it, so overlap cannot separate a probe that ASSERTS
+    a fact from one that ASKS about it. Distinguishing those needs meaning, so it belongs to
+    the two graders that have it — the architect's self-check and the assessor's `probe_gap`
+    — and not to a regex that would cry wolf on correct nodes. A warning nobody believes is
+    worse than no warning.
+    """
+    if not isinstance(rubric, list) or not rubric:
+        return [{"criterion": None, "kind": "no-rubric",
+                 "note": "no rubric — the assessor's contract is undefined (both "
+                         "`all criteria met` and `zero criteria met` hold), and the grade "
+                         "it invents still writes a schedule"}]
+    text = probe if isinstance(probe, str) else ""
+    # An explicit `why`/`explain` invites a framing and a why — but not a consequence.
+    invited = bool(_GAP_ANY_REQUEST.search(text))
+    gaps = []
+    for i, crit in enumerate(rubric):
+        if not isinstance(crit, str) or not crit.strip():
+            continue
+        for family, demands, requests in _GAP_FAMILIES:
+            if invited and family != "consequence":
+                continue
+            hit = demands.search(crit)
+            if hit and not requests.search(text) and not _probe_echoes(hit, text):
+                gaps.append({"criterion": i + 1, "kind": "unrequested",
+                             "note": "asks for a %s the probe never requests: %s"
+                                     % (family, _clip(crit, 90))})
+                break
+    return gaps
+
+def _clip(s, n):
+    s = " ".join(str(s).split())
+    return s if len(s) <= n else s[:n - 1] + "…"
+
 def cmd_add_topic(args):
     g = load_payload(args)
     for key in ("topic", "title", "nodes", "order"):
@@ -781,6 +965,22 @@ def cmd_add_topic(args):
                 and node["practice"].get("problem_frame")):
             warnings.append("%s: kind=procedure without practice.problem_frame — reviews "
                             "will fall back to the stored probe (concept-style)" % nid)
+        # The grading contract must be EARNABLE FROM THE PROBE (v1.10, issue #13). A
+        # criterion the probe never requests does not merely cost a grade — it writes an
+        # FSRS receipt, so it schedules real reviews of a node the learner knows.
+        # Only nodes this payload actually authored, and only ones still on the learner's
+        # list. `--extend` merges every pre-existing node into `g["nodes"]`, so without the
+        # second guard each extend re-emitted authoring warnings for nodes the author never
+        # touched — and `doctor` (which skips retired) then called the same nodes clean.
+        # Two surfaces telling different stories about one state is a shipped bug class here.
+        _authored = (not _extend_arc) or nid in _extend_new
+        _still_listed = not (isinstance(old_nodes.get(nid), dict)
+                             and is_retired(old_nodes[nid]))
+        for gap in (probe_rubric_gaps(node.get("probe"), node.get("rubric"))
+                    if (_authored and _still_listed) else []):
+            warnings.append("%s: %s%s" % (nid,
+                            ("rubric criterion %d " % gap["criterion"]) if gap["criterion"] else "",
+                            gap["note"]))
         # The engine OWNS scheduling state — never trust payload-supplied state/fsrs
         # (mastery advances only through receipts; Article 10). On --replace, carry
         # the existing schedule forward for surviving node ids so restructuring a
@@ -798,6 +998,13 @@ def cmd_add_topic(args):
         # warning, on the graph that is its only record.
         node.pop("retired", None)
         node.pop("arc", None)          # same class: the payload must not choose its own arc
+        # `revised` (v1.10) is engine-owned the same way — written ONLY by `edit-node`. It is
+        # the record that a node's grading contract moved, so a payload that minted one would
+        # be claiming a repair nobody made, and a `--replace` that dropped one would erase the
+        # seam a reader needs to avoid comparing a v2 rubric against v1 verdicts. Invariant 4
+        # (docs/09) says every new engine-owned field gets both halves; `retired` shipped with
+        # neither and cost a release, so this one arrives with both.
+        node.pop("revised", None)
         prev = old_nodes.get(nid)
         if isinstance(prev, dict) and isinstance(prev.get("fsrs"), dict):
             node["fsrs"] = prev["fsrs"]
@@ -808,6 +1015,8 @@ def cmd_add_topic(args):
         node["artifact"] = valid_artifact(prev)
         if isinstance(prev, dict) and isinstance(prev.get("retired"), dict):
             node["retired"] = prev["retired"]        # the learner's decision survives
+        if isinstance(prev, dict) and isinstance(prev.get("revised"), list):
+            node["revised"] = prev["revised"]        # ...and so does the contract's history
         if isinstance(prev, dict) and as_number(prev.get("arc")) is not None:
             node["arc"] = int(as_number(prev.get("arc"), 1) or 1)
         elif _extend_arc and nid in _extend_new:
@@ -1393,6 +1602,18 @@ def make_receipt(item, extra, kind):
     grader = item.get("grader")
     if isinstance(grader, str) and grader:
         receipt["grader"] = grader[:64]
+    # v1.10 (issue #13). ⚠ THIS DOES NOT MOVE THE GRADE, AND MUST NOT. The blind assessor
+    # grades the production against the contract it was given; letting it forgive a
+    # criterion because the probe was badly written would inflate exactly the number this
+    # repo cannot ship wrong, and would hide the defect inside a better-looking score.
+    # It perceives, the graph gets repaired, and the grade stays honest about what was
+    # actually produced. Absent stays honestly absent — never inferred, never zero-filled.
+    pg = item.get("probe_gap")
+    if isinstance(pg, list) and pg:
+        receipt["probe_gap"] = [int(x) for x in pg
+                                if isinstance(x, int) and not isinstance(x, bool) and x >= 1]
+        if not receipt["probe_gap"]:
+            del receipt["probe_gap"]
     if truncated:
         receipt["production_truncated"] = True
     return receipt
@@ -1448,6 +1669,19 @@ def validate_item(item):
         die("bad error_class %r (use %s) — a typo'd class would ride an append-only "
             "receipt forever and silently vanish from the slip/conceptual split"
             % (ec, "|".join(ERROR_CLASSES)))
+    # v1.10 (issue #13): which rubric criteria the PROBE never asked for, as 1-based
+    # indices. A closed shape on purpose — it is the one assessor output that indicts the
+    # curriculum rather than the learner, so it must be countable and it must not become a
+    # place to write prose. `bool` is an `int` in Python and would sail straight through a
+    # naive check, so it is excluded explicitly.
+    pg = item.get("probe_gap")
+    if pg is not None:
+        if not isinstance(pg, list) or any(
+                isinstance(x, bool) or not isinstance(x, int) or x < 1 for x in pg):
+            die("bad probe_gap %r — expected a list of 1-based rubric criterion numbers, "
+                "e.g. [3]. It records which criteria the PROBE never requested; it never "
+                "changes the grade, so a malformed one must die here rather than ride an "
+                "append-only receipt as a silent zero" % (pg,))
 
 def drop_stash(topic, node):
     """Remove applied (topic, node) entries so the stash self-drains as receipts land."""
@@ -4307,6 +4541,141 @@ def cmd_capstone(args):
                    "encoded, and it shows up in `next` like anything else — so it cannot "
                    "silently not happen.")})
 
+def cmd_edit_node(args):
+    """Repair ONE node's grading contract in place — probe, rubric, transfer_probe (v1.10).
+
+    Issue #13's reporter had to ask the agent to rewrite a probe by hand every time a rubric
+    demanded something the probe never asked for, because the only verb that could change a
+    probe was `add-topic --replace`: re-author the WHOLE topic to fix one sentence. That is
+    a bad trade nobody should make mid-session, so it did not get made — and the mismatch
+    stayed, quietly scheduling reviews.
+
+    THE BOUNDARY, and it is the whole design: this edits the CONTRACT (what is asked and how
+    it is marked) and touches nothing else. `fsrs`, `state`, `artifact`, `retired`, `arc`,
+    `transfer` and every receipt are untouched — mastery still advances only through
+    receipts (docs/09 §2.4), and a repair that silently reset a schedule would be exactly the
+    flattering data loss this repo keeps re-learning.
+
+    AND THE HONESTY STAMP: receipts already on disk were graded against the OLD contract.
+    They carry their own `probe` and `rubric_notes`, so history stays self-describing — but
+    the node must say that its contract moved, or a later reader would compare a v2 rubric
+    against v1 verdicts and see a learner who got worse. `revised` records when and what.
+    """
+    require_slug(args.topic)
+    # ⚠ A REPAIRED PROBE IS FREE TEXT, so it gets the same channel every other free-text
+    # payload in this engine gets: a file (or stdin), never the command line. The skills'
+    # shell-safety rule exists because a stray quote or `$(…)` in model-authored text would
+    # execute — and this verb is invoked mid-session by a tutor that just wrote the sentence.
+    # The inline flags stay for hand use at a terminal; `--file` is what the skills document.
+    if getattr(args, "file", None) or getattr(args, "json", None) is not None:
+        payload = load_payload(args)
+        if not isinstance(payload, dict):
+            die("edit-node payload must be a JSON object with any of: probe, rubric, "
+                "transfer_probe")
+        unknown = sorted(set(payload) - {"probe", "rubric", "transfer_probe"})
+        if unknown:
+            die("edit-node refuses unknown field(s): %s. This verb edits the GRADING "
+                "CONTRACT only — schedules, receipts and registrations advance through "
+                "receipts, never through an edit (docs/09 invariant 4)." % ", ".join(unknown))
+        if "probe" in payload:
+            args.probe = payload["probe"] if isinstance(payload["probe"], str) else ""
+        if "rubric" in payload:
+            args.rubric_json = json.dumps(payload["rubric"])
+        if "transfer_probe" in payload:
+            tp = payload["transfer_probe"]
+            args.transfer_probe = tp if isinstance(tp, str) else ""
+    if not any([args.probe, args.rubric_json, args.transfer_probe is not None]):
+        die("nothing to edit: pass --probe, --rubric-json and/or --transfer-probe, or "
+            "--file/--json carrying any of {probe, rubric, transfer_probe} "
+            "(to restructure a topic use `add-topic --replace`; to add an arc, --extend)")
+    g = load_graph(args.topic)
+    # ⚠ RAW, not `graph_nodes()` — that helper drops non-dict nodes, which made the corrupt-node
+    # branch below unreachable and reported a hand-corrupted node as "unknown". `apply_item`
+    # reads raw for this reason; a diagnostic that misnames the fault sends the user to a
+    # command that confirms nothing.
+    nodes = g.get("nodes") if isinstance(g.get("nodes"), dict) else {}
+    node = nodes.get(args.node)
+    if node is None:
+        die("unknown node %s in topic %s (run `topic-status --topic %s`)"
+            % (args.node, args.topic, args.topic))
+    if not isinstance(node, dict):
+        die("node %s in topic %s is corrupt (an object was expected, found %s) — run "
+            "`doctor` and fix graphs/%s.json first"
+            % (args.node, args.topic, type(node).__name__, args.topic))
+    if node.get("capstone"):
+        die("the capstone's contract is minted by the engine from the topic's own nodes — "
+            "edit the nodes it requires, or re-mint with `capstone`")
+
+    changed = []
+    if args.probe:
+        if not args.probe.strip():
+            die("--probe cannot be blank: a node with no probe can never be served")
+        _new = args.probe.strip()
+        if _new != node.get("probe"):
+            node["probe"] = _new; changed.append("probe")
+    if args.rubric_json:
+        try:
+            rub = json.loads(args.rubric_json)
+        except ValueError as e:
+            die("--rubric-json is not valid JSON: %s" % e)
+        if not isinstance(rub, list) or not rub:
+            die("--rubric-json must be a non-empty JSON array of criterion strings — an "
+                "empty rubric leaves the assessor's contract undefined (both `all criteria "
+                "met` and `zero criteria met` hold) and the grade it invents still writes "
+                "a schedule")
+        if not all(isinstance(c, str) and c.strip() for c in rub):
+            die("--rubric-json must contain only non-empty strings")
+        _new = [c.strip() for c in rub]
+        if _new != node.get("rubric"):
+            node["rubric"] = _new; changed.append("rubric")
+    if args.transfer_probe is not None:
+        tp = args.transfer_probe.strip()
+        if (tp or None) != node.get("transfer_probe"):
+            node["transfer_probe"] = tp or None; changed.append("transfer_probe")
+
+    # Prior receipts were graded against the previous contract. Say so on the node — a
+    # reader comparing a new rubric to old verdicts must be able to see the seam.
+    # ⚠ SINCE THE LAST REVISION, not "all receipts for this node". Counting every receipt
+    # made the second repair report receipts that predated the first one — so summing
+    # `revised[]` exceeded the receipts that exist, and the label ("graded against the
+    # PREVIOUS contract") was false for most of them. A count whose name overstates it is a
+    # wrong number by this repo's own rule, however correct the arithmetic.
+    rev = node.get("revised")
+    rev = rev if isinstance(rev, list) else []
+    since = safe_date(rev[-1].get("at")) if rev and isinstance(rev[-1], dict) else None
+    graded = 0
+    for r in _receipts_for(args.topic):
+        if not isinstance(r, dict) or r.get("node") != args.node:
+            continue
+        if since is not None:
+            ts = safe_date(r.get("ts"))
+            if ts is not None and ts <= since:
+                continue
+        graded += 1
+    if not changed:
+        # A no-op edit used to stamp a revision anyway, filling the seam record with
+        # non-seams and making `doctor` treat a real flag as stale.
+        emit({"ok": True, "topic": args.topic, "node": args.node, "changed": [],
+              "probe": node.get("probe"), "rubric": node.get("rubric", []),
+              "receipts_under_previous": graded,
+              "warnings": ["nothing changed — the values given are already the ones stored, "
+                           "so no revision was recorded"]})
+        return
+    node["revised"] = rev + [
+        {"at": today().isoformat(), "fields": changed, "receipts_under_previous": graded}]
+    save_graph(g)
+
+    gaps = probe_rubric_gaps(node.get("probe"), node.get("rubric"))
+    warnings = ["%s%s" % (("rubric criterion %d " % gp["criterion"]) if gp["criterion"] else "",
+                          gp["note"]) for gp in gaps]
+    if graded:
+        warnings.append("%d receipt(s) for this node were graded against the PREVIOUS "
+                        "contract — they keep their own probe and rubric_notes, and none "
+                        "was rewritten. The schedule is untouched." % graded)
+    emit({"ok": True, "topic": args.topic, "node": args.node, "changed": changed,
+          "probe": node.get("probe"), "rubric": node.get("rubric", []),
+          "receipts_under_previous": graded, "warnings": warnings})
+
 def cmd_retire(args):
     """The learner takes something off their list — the autonomy verb Engram never had (v1.3).
 
@@ -5766,6 +6135,10 @@ def cmd_refit(args):
 #    v1.0, and the gate is a refusal, not a warning.**
 
 EXPORT_STRIPPED = ("production", "probe", "claim", "rubric", "goal", "interests",
+                   # v1.10: a curriculum-authoring defect is the AUTHOR's business,
+                   # not the corpus's — and a criterion index is only meaningful
+                   # beside the rubric it indexes, which never leaves.
+                   "probe_gap",
                    "misconceptions", "misconception_text", "rubric_notes", "feedback_line",
                    "topic_string", "node_id", "title", "why_chain", "transfer_probe",
                    "commitment", "notes", "question",
@@ -5923,6 +6296,8 @@ def cmd_export(args):
 def cmd_doctor(_args):
     issues = []
     notes = []   # non-failing observations with a fix path (doctor stays ok)
+    probe_gaps = []   # v1.10 (issue #13): rubric criteria the probe never asked for
+    live_nodes = {}   # topic -> its CURRENT nodes, for the receipt cross-reference
     info = {"python": "%d.%d.%d" % sys.version_info[:3], "home": home()}
     os.makedirs(home(), exist_ok=True)
     info["writable"] = os.access(home(), os.W_OK)
@@ -5947,6 +6322,8 @@ def cmd_doctor(_args):
                           "reads skip it; fix or delete graphs/%s.json" % (t, t))
             continue
         node_count += len(g["nodes"])
+        live_nodes[t] = g["nodes"]      # so the receipt cross-reference below can ask the
+                                        # CURRENT contract whether a past flag still stands
         for nid in (g.get("order") if isinstance(g.get("order"), list) else []):
             if not isinstance(nid, str):
                 issues.append("%s: order contains a non-string entry (%s)"
@@ -5989,6 +6366,15 @@ def cmd_doctor(_args):
                 notes.append("%s/%s: unregistered artifact file — register with: "
                              "artifact set --topic %s --node %s --path %s"
                              % (t, nid, t, nid, shlex.quote(p("artifacts", t, nid + ".html"))))
+            # v1.10 (issue #13). A NOTE, never an issue: a graph authored before this check
+            # existed is not corrupt, and flipping `doctor` red for the engine's own past
+            # leniency is the trap the artifact note above already learned. Every entry
+            # carries its repair; nothing is capped, so the count cannot flatter.
+            if not node.get("capstone") and not is_retired(node):
+                for gap in probe_rubric_gaps(node.get("probe"), node.get("rubric")):
+                    probe_gaps.append({"topic": t, "node": nid, "criterion": gap["criterion"],
+                                       "kind": gap["kind"], "sources": ["scan"],
+                                       "note": gap["note"]})
     # surface quarantined corrupt files so the user knows state was preserved, not lost
     corrupt = []
     for sub in ("", "graphs"):
@@ -5997,6 +6383,86 @@ def cmd_doctor(_args):
             corrupt += [os.path.join(sub, f) for f in os.listdir(d) if ".corrupt." in f]
     if corrupt:
         issues.append("quarantined corrupt files present: %s" % ", ".join(sorted(corrupt)))
+    # The JUDGED half of the same defect (v1.10). The regex above catches a shape; the blind
+    # assessor catches meaning — including the leak-then-demand case the regex deliberately
+    # refuses to guess at. Both land in one list so there is ONE place to look, and the
+    # assessor's verdict is not a field only a test ever opens (bug class #4).
+    # ⚠ Receipts are hand-editable, so `topic`/`node`/`probe_gap` can be ANY JSON type here.
+    # The first draft built a dedupe key straight out of them — `(r.get("topic"), …)` — and
+    # the fuzzer put a dict in `topic`: 302 crashes in 600 states, in `doctor`, the one
+    # command that must never die of what it exists to find. Everything is coerced to a
+    # string before it is hashed or sorted.
+    #
+    # ⚠⚠ A RECEIPT'S `probe_gap` IS EVIDENCE ABOUT THE CONTRACT AS IT WAS AT GRADING TIME.
+    # Receipts are append-only, so replaying them unconditionally means an assessor flag can
+    # NEVER clear: the release review repaired a node exactly as the narrator instructed and
+    # `doctor` went on reporting it, with the same now-useless repair command, forever. That
+    # is the precise failure this whole feature exists to prevent — *a warning nobody
+    # believes* — reproduced inside the fix for it. Four filters, each a live defect:
+    #   · the node was REVISED at/after the receipt — the flag indicts a contract that is gone
+    #   · the criterion index no longer exists      — a stale index into a rubric that shrank
+    #   · the node is missing or retired            — a repair command nobody can or should run
+    #   · the criterion is already in the list      — one finding per (topic, node, criterion)
+    by_key = {(gp["topic"], gp["node"], gp["criterion"]): gp for gp in probe_gaps}
+    for r in collect_receipts():
+        if not isinstance(r, dict):
+            continue
+        pg = r.get("probe_gap")
+        if not isinstance(pg, list) or not pg:
+            continue
+        rt, rn = str(r.get("topic")), str(r.get("node"))
+        node = live_nodes.get(rt, {}).get(rn)
+        if not isinstance(node, dict) or node.get("capstone") or is_retired(node):
+            continue                      # gone, engine-owned, or off the learner's list
+        rub = node.get("rubric")
+        n_crit = len(rub) if isinstance(rub, list) else 0
+        revised_at = None
+        rev = node.get("revised")
+        if isinstance(rev, list) and rev and isinstance(rev[-1], dict):
+            revised_at = safe_date(rev[-1].get("at"))
+        r_ts = safe_date(r.get("ts"))
+        if revised_at and (r_ts is None or r_ts <= revised_at):
+            continue                      # graded under a contract that has since been repaired
+        for c in pg:
+            if not isinstance(c, int) or isinstance(c, bool) or c < 1 or c > n_crit:
+                continue                  # a stale or hand-edited index into this rubric
+            key = (rt, rn, c)
+            if key in by_key:
+                by_key[key]["sources"] = sorted(set(by_key[key]["sources"]) | {"assessor"})
+                continue
+            gp = {"topic": rt, "node": rn, "criterion": c, "kind": "assessor-flagged",
+                  "sources": ["assessor"],
+                  "note": "the assessor recorded that the probe never asked for this "
+                          "criterion while grading a real production"}
+            by_key[key] = gp
+            probe_gaps.append(gp)
+    # One narrator line per topic; the full list stays in `probe_gaps`, uncapped. A count
+    # summarised without its repair is the "guard nobody reads" class — so the line names
+    # the command, and the structured entries name the criterion.
+    for t in sorted({str(gp["topic"]) for gp in probe_gaps}, key=str):
+        hits = [gp for gp in probe_gaps if str(gp["topic"]) == t]
+        # ⚠ SHELL-QUOTE. These strings can come from a hand-editable receipt, and the skills
+        # are written to PASTE this line. The artifact note twenty lines above already quotes
+        # its path for exactly this reason; a node id of `a; touch /tmp/PWNED` produced a
+        # runnable command. (Graph-sourced ids are slug-validated; receipt-sourced ones are not.)
+        empty = [gp for gp in hits if gp["kind"] == "no-rubric"]
+        gapped = [gp for gp in hits if gp["kind"] != "no-rubric"]
+        if empty:
+            ids = sorted({str(gp["node"]) for gp in empty}, key=str)
+            notes.append("%s: %d node(s) have NO rubric — the assessor's contract is undefined "
+                         "there (both `all criteria met` and `zero criteria met` hold) and the "
+                         "grade it invents still writes a schedule. See `probe_gaps`; repair "
+                         "with: edit-node --topic %s --node %s --rubric-json '[\"criterion 1\", "
+                         "\"criterion 2\"]'"
+                         % (t, len(ids), shlex.quote(t), shlex.quote(ids[0])))
+        if gapped:
+            ids = sorted({str(gp["node"]) for gp in gapped}, key=str)
+            notes.append("%s: %d node(s) carry a rubric criterion the probe never asks for — "
+                         "answering the probe fully still grades below `recalled`, and that "
+                         "writes a real review. See `probe_gaps`; repair with: "
+                         "edit-node --topic %s --node %s --probe '<the probe, now asking for it>'"
+                         % (t, len(ids), shlex.quote(t), shlex.quote(ids[0])))
+    info["probe_gaps"] = probe_gaps
     info["nodes"] = node_count
     info["receipts"] = len(collect_receipts())
     info["pending_verify"] = len(read_jsonl(p(STASH_FILE)))
@@ -11298,6 +11764,404 @@ def cmd_selftest(_args):
     check("the shipped experiment presets load as pre-registered designs with their threats",
           fresh(_presets))
 
+    # ── PROBE/RUBRIC COVERAGE — issue #13 (v1.10) ────────────────────────────────────
+    #
+    # The property under test is NOT "the regex matches words". It is: *a criterion the
+    # probe never requested is surfaced, and a criterion the probe DOES request is not*.
+    # The second half is the one that matters — this check's whole value is that authors
+    # believe it, and a check that only proves it fires would pass just as happily for a
+    # detector that fires on everything.
+    UNASKED = ["names the load balancer", "connects it to horizontal scaling"]
+    check("an unrequested framing criterion is surfaced",
+          [g["criterion"] for g in probe_rubric_gaps(
+              "What component distributes traffic across replicas?", UNASKED)] == [2])
+    # ⚠ THE LOAD-BEARING PROPERTY, AND IT MUST BE TESTED ADVERSARIALLY.
+    #
+    # v1.10.0's first draft asserted this with the ONE repair phrasing the author had
+    # hand-tuned into the request regex, and passed. An adversarial review then found that
+    # SIX OF SEVEN natural repairs of the same probe still fired — including one repaired
+    # with the criterion's own verb ("…and what CONNECTS it to horizontal scaling?"). A
+    # confirmatory test on the single example you had in mind is §4.5's fixture-agrees-by-
+    # coincidence failure wearing different clothes, and it is why `_probe_echoes` exists:
+    # an enumerated list of request markers can never guarantee this, because the list is
+    # finite and English is not. Every phrasing below must stay silent, and any future
+    # tightening that breaks one of them has broken the feature.
+    REPAIRS = [
+        "and what connects it to horizontal scaling?",      # the criterion's own verb
+        "and what are the consequences as you add machines?",
+        "and what are the implications for scaling?",
+        "and what is its relationship to scaling?",
+        "and what links it to horizontal scaling?",
+        "and what does that buy you as you add machines?",
+        "and how does that relate to scaling?",
+        "and what does it enable as the fleet grows?",
+        "and what is the connection to horizontal scaling?",
+    ]
+    # ⚠ This one is silenced ONLY by `_probe_echoes`: `characteri[sz]es?` is a demand
+    # marker with no counterpart in any request list, so an author repairing the probe
+    # with the criterion's own verb has nothing else to save them. Without it here the
+    # echo bypass is untested — every other phrasing above is now covered by the
+    # inflected request regexes on their own.
+    check("...and the criterion's OWN verb always silences it, whatever the verb",
+          probe_rubric_gaps("What is a monad, and what characterises it as one?",
+                            ["characterises it as a monoid in the category of endofunctors"]) == []
+          and probe_rubric_gaps("What is a monad?",
+                                ["characterises it as a monoid in the category of endofunctors"]) != [])
+    check("...and goes SILENT on EVERY natural repair, not just the author's phrasing",
+          all(probe_rubric_gaps("What component distributes traffic across replicas, " + tail,
+                                UNASKED) == [] for tail in REPAIRS))
+    # An unbounded `connects?` matched "least-connections" and flagged a criterion the probe
+    # plainly asked for. Word boundaries are the fix; this is what holds them there.
+    check("a criterion is not flagged for a word that merely CONTAINS a marker",
+          probe_rubric_gaps("What does the load balancer use to decide where each request goes?",
+                            ["mentions a policy (round-robin / least-connections)"]) == [])
+    # Per-family matching, which one probe-level boolean cannot express: "give the
+    # mechanism" requests a FRAMING and says nothing about CONSEQUENCES.
+    fam = probe_rubric_gaps("Give the mechanism that makes prompt wording effective.",
+                            ["frames the prompt as conditioning on a document type",
+                             "connects the change to which continuations are likely",
+                             "draws the consequence that it is a prior, not a guarantee"])
+    check("a probe requesting one KIND of elaboration does not license the others",
+          [g["criterion"] for g in fam] == [3])
+    # The hatch is SCOPED: `why`/`explain` invites a framing and a why, never a consequence.
+    check("an explicit `why`/`explain` probe silences framing and why",
+          probe_rubric_gaps("Explain why the average is a misleading metric.",
+                            ["frames it as the tail dominating at scale",
+                             "gives the reason the mean hides the tail"]) == [])
+    check("...but a why-probe still does NOT license an unasked CONSEQUENCE",
+          [g["criterion"] for g in probe_rubric_gaps(
+              "Why does a load balancer prefer least-connections over round-robin?",
+              ["draws the consequence for p99 tail latency as the fleet grows"])] == [1])
+    # Ordinary rubric vocabulary is not a demand for elaboration. Both of these were real
+    # false positives — one on a legal rubric, one on a curriculum an architect authored
+    # under the new self-check — and both are the same mistake as `connects?` matching
+    # "least-connections": a marker that is also plain prose cannot carry the check.
+    check("plain rubric prose (`notes that`, a `link` noun, a step's `because`) is not a demand",
+          probe_rubric_gaps("Then say what neither message tells you about the chain.",
+                            ["notes that neither string identifies which certificate failed"]) == []
+          and probe_rubric_gaps("State the general rule about which certificates get checked.",
+                                ["states the rule, so one failing link fails the whole chain"]) == []
+          and probe_rubric_gaps("Perform a git bisect to find the offending commit.",
+                                ["marks the known-good commit, because bisect needs both ends"]) == [])
+    check("an empty rubric is reported as an undefined contract, not a pass",
+          [g["kind"] for g in probe_rubric_gaps("p", [])] == ["no-rubric"]
+          and [g["kind"] for g in probe_rubric_gaps("p", "not-a-list")] == ["no-rubric"])
+    # `doctor` calls this over hand-editable graphs (§4.7): it must degrade, never brick.
+    check("the coverage check survives garbage shapes",
+          lambda: probe_rubric_gaps(None, [1, None, "", {"x": 1}]) is not None
+          and probe_rubric_gaps({"a": 1}, ["connects it to scale"]) is not None
+          and probe_rubric_gaps(7, None) is not None)
+
+    def _addtopic_warns(h):
+        g = {"topic": "t", "title": "T", "order": ["a"], "nodes": {"a": {
+            "claim": "c", "probe": "What component distributes traffic across replicas?",
+            "rubric": UNASKED}}}
+        out = _capture_json(cmd_add_topic, _ns(json=json.dumps(g)))
+        # a WARNING, never a die: a payload costs real minutes and a false positive must
+        # never destroy one
+        return out["ok"] is True and any("criterion 2" in w for w in out["warnings"])
+    check("add-topic warns (never dies) on a criterion the probe never asks for",
+          fresh(_addtopic_warns))
+
+    def _edit_node(h):
+        g = {"topic": "t", "title": "T", "order": ["a"], "nodes": {"a": {
+            "claim": "c", "probe": "What component distributes traffic across replicas?",
+            "rubric": UNASKED}}}
+        _capture(cmd_add_topic, _ns(json=json.dumps(g)))
+        _capture(cmd_rate, _ns(topic="t", node="a", rating="good", confidence=80,
+                               production="lb", grade="partial", kind="encode"))
+        before = load_graph("t")["nodes"]["a"]
+        s_before, state_before = before["fsrs"]["s"], before["state"]
+        out = _capture_json(cmd_edit_node, _ns(
+            topic="t", node="a", rubric_json=None, transfer_probe=None,
+            probe="What component distributes traffic across replicas, and what does "
+                  "that buy you as you add machines?"))
+        after = load_graph("t")["nodes"]["a"]
+        return (out["changed"] == ["probe"]
+                # the repair actually repairs: no coverage warning survives it...
+                and not any("never requests" in w for w in out["warnings"])
+                # ...and the seam is stated out loud rather than left for a reader to find
+                and any("PREVIOUS contract" in w for w in out["warnings"])
+                # THE BOUNDARY: the contract moved, the schedule did not. A repair that
+                # silently reset a schedule is the flattering data loss this repo bans.
+                and after["fsrs"]["s"] == s_before and after["state"] == state_before
+                and len(_receipts_for("t")) == 1
+                # ...and the node says its contract moved, so a later reader cannot compare
+                # a v2 rubric against v1 verdicts and see a learner who got worse
+                and after["revised"][-1]["fields"] == ["probe"]
+                and after["revised"][-1]["receipts_under_previous"] == 1
+                and out["receipts_under_previous"] == 1)
+    check("edit-node repairs the contract and touches NOTHING else", fresh(_edit_node))
+
+    def _edit_node_refuses(h):
+        _add_ab()
+        bad = [
+            _ns(topic="t", node="nope", probe="x", rubric_json=None, transfer_probe=None),
+            _ns(topic="t", node="a", probe="   ", rubric_json=None, transfer_probe=None),
+            _ns(topic="t", node="a", probe=None, rubric_json="[]", transfer_probe=None),
+            _ns(topic="t", node="a", probe=None, rubric_json="[\"\"]", transfer_probe=None),
+            _ns(topic="t", node="a", probe=None, rubric_json="not json", transfer_probe=None),
+            _ns(topic="t", node="a", probe=None, rubric_json=None, transfer_probe=None),
+            _ns(topic="t", node=CAPSTONE_ID, probe="x", rubric_json=None, transfer_probe=None),
+        ]
+        return all(raises(cmd_edit_node, ns) for ns in bad)
+    check("edit-node refuses a blank probe, an empty rubric, the capstone, and a no-op",
+          fresh(_edit_node_refuses))
+
+    # `probe_gap` — the assessor's half. A CLOSED shape, because it is the one assessor
+    # output that indicts the curriculum rather than the learner.
+    check("probe_gap rejects anything that is not 1-based criterion numbers",
+          all(raises(validate_item, {"topic": "t", "node": "a", "rating": "good",
+                                     "probe_gap": bad})
+              for bad in ([0], [-1], ["3"], [True], "3", {"c": 3}, [1.5])))
+    check("probe_gap accepts a real one",
+          not raises(validate_item, {"topic": "t", "node": "a", "rating": "good",
+                                     "probe_gap": [2, 3]}))
+
+    def _probe_gap_rides(h):
+        g = {"topic": "t", "title": "T", "order": ["a"], "nodes": {"a": {
+            "claim": "c", "probe": "What component distributes traffic across replicas?",
+            "rubric": UNASKED}}}
+        _capture(cmd_add_topic, _ns(json=json.dumps(g)))
+        item = {"topic": "t", "node": "a", "rating": "hard", "grade": "partial",
+                "kind": "encode", "production": "a load balancer", "confidence": 80,
+                "probe_gap": [2]}
+        path = os.path.join(h, "items.json")
+        write_json(path, [item])
+        _capture(cmd_receipt, _ns(file=path, json=None))
+        r = _receipts_for("t")[-1]
+        doc = _capture_json(cmd_doctor, _ns(fix=False))
+        # ONE finding per (topic, node, criterion). Both detectors reaching the same criterion
+        # is one defect with two witnesses, not two defects — `len(probe_gaps)` is the figure
+        # the numbers audit reconciles against an independent scan, so double-entry would make
+        # it over-count. Provenance is carried in `sources`, computed rather than asserted.
+        flagged = [gp for gp in doc["probe_gaps"] if "assessor" in gp.get("sources", [])]
+        return (r.get("probe_gap") == [2]
+                # ⚠ IT MUST NOT MOVE THE GRADE. Forgiving a criterion because the probe was
+                # badly written would inflate the one number this repo cannot ship wrong,
+                # and would hide the defect inside a better-looking score.
+                and r["grade"] == "partial" and r["rating"] == "hard"
+                # and it must reach a surface a human reads — not sit in a nested key
+                and len(flagged) == 1 and flagged[0]["criterion"] == 2
+                and doc["ok"] is True          # an authoring defect is not corruption
+                and any("never asks for" in n for n in doc["notes"]))
+    check("probe_gap rides the receipt, never moves the grade, and reaches doctor",
+          fresh(_probe_gap_rides))
+
+    # ⚠ THE ASSESSOR HALF MUST CLEAR WHEN THE CONTRACT IS REPAIRED.
+    # It did not. Receipts are append-only, so `doctor` replayed every historical flag on
+    # every run: a learner who repaired a node exactly as the narrator instructed watched the
+    # count refuse to move, with the same now-useless repair command re-offered forever. The
+    # release's own published instrument property — *a repaired probe must stop warning* —
+    # held for the regex half only, and the release review found it. Four ways a flag goes
+    # stale, all pinned here, because each was reachable in the shipping code.
+    def _assessor_flag_clears(h):
+        g = {"topic": "t", "title": "T", "order": ["a", "b", "c"], "nodes": {
+            "a": {"claim": "c", "probe": "What component distributes traffic across replicas?",
+                  "rubric": UNASKED},
+            "b": {"claim": "c", "probe": "What is B?", "rubric": ["names B", "says why B"]},
+            "c": {"claim": "c", "probe": "What is C?", "rubric": ["names C"]}}}
+        _capture(cmd_add_topic, _ns(json=json.dumps(g)))
+        path = os.path.join(h, "i.json")
+        write_json(path, [{"topic": "t", "node": n, "rating": "hard", "grade": "partial",
+                           "kind": "encode", "probe_gap": [2] if n != "c" else [1]}
+                          for n in ("a", "b", "c")])
+        _capture(cmd_receipt, _ns(file=path, json=None))
+        before = len(_capture_json(cmd_doctor, _ns(fix=False))["probe_gaps"])
+
+        # 1. repaired -> the flag is about a contract that no longer exists
+        _capture(cmd_edit_node, _ns(topic="t", node="a", rubric_json=None, transfer_probe=None,
+                                    file=None, json=None,
+                                    probe="What component distributes traffic across "
+                                          "replicas, and what does that buy you as you "
+                                          "add machines?"))
+        # 2. the rubric shrank -> criterion 2 is a stale index. Re-authored via `--replace`,
+        #    NOT `edit-node`: an edit stamps `revised`, and the revised-at filter would then
+        #    drop the flag on its own — leaving the index bound untested (§4.5, another gate
+        #    already covers it). This path shrinks the rubric with no revision stamp.
+        # Built from the LIVE graph, not from the original payload: replaying the payload
+        # would re-author node `a` with its pre-repair probe and re-open the gap this
+        # fixture just closed.
+        live = load_graph("t")
+        g2 = {"topic": "t", "title": "T", "order": ["a", "b", "c"], "nodes": {
+            nid: {"claim": n.get("claim"), "probe": n.get("probe"),
+                  "rubric": ["names B"] if nid == "b" else n.get("rubric")}
+            for nid, n in live["nodes"].items() if nid != CAPSTONE_ID}}
+        _capture(cmd_add_topic, _ns(json=json.dumps(g2), replace=True))
+        # 3. the learner took it off their list
+        _capture(cmd_retire, _ns(topic="t", node="c", restore=False))
+        after = _capture_json(cmd_doctor, _ns(fix=False))["probe_gaps"]
+        # 4. a receipt naming a node that no longer exists is not a repair anyone can run
+        write_json(path, [{"topic": "t", "node": "a", "rating": "hard", "grade": "partial",
+                           "kind": "encode", "probe_gap": [2]}])
+        ghost = os.path.join(h, "gh.jsonl")
+        with open(p("receipts", "t.jsonl"), "a") as f:
+            f.write(json.dumps({"id": "r_x", "ts": "2030-01-01", "topic": "t",
+                                "node": "no-such-node", "probe_gap": [1]}) + "\n")
+        _RECEIPTS_CACHE.clear()
+        final = _capture_json(cmd_doctor, _ns(fix=False))["probe_gaps"]
+        return (before >= 3 and after == []
+                and not any(gp["node"] == "no-such-node" for gp in final)
+                and os.path.exists(ghost) is False)
+    check("an assessor flag CLEARS once the contract is repaired, shrunk, or retired",
+          fresh(_assessor_flag_clears))
+
+    def _doctor_note_is_pasteable(h):
+        g = {"topic": "t", "title": "T", "order": ["a", "z"], "nodes": {
+            "a": {"claim": "c", "probe": "What component distributes traffic across replicas?",
+                  "rubric": UNASKED},
+            "z": {"claim": "c", "probe": "What is Z?", "rubric": []}}}
+        _capture(cmd_add_topic, _ns(json=json.dumps(g)))
+        # ⚠ The live vector is a HAND-EDITED graph, not a receipt: the receipt cross-reference
+        # now drops ids that name no existing node, and `add-topic` slug-validates every id it
+        # writes. `doctor` reads graphs RAW, by design — it is the thing that reports
+        # corruption — so a node id typed straight into the JSON reaches the narrator.
+        # ⚠ The injected id must be the one the narrator SHOWS. The line names a single
+        # example — `ids[0]` after sorting — so an injected id that sorts second is quoted
+        # by code the assertion never reaches. `A;` sorts ahead of `a`, which is the only
+        # reason this fixture can see the quoting at all.
+        raw = read_json(p("graphs", "t.json"))
+        bad = "A; touch " + os.path.join(h, "PWNED")
+        raw["nodes"][bad] = dict(raw["nodes"]["a"])
+        write_json(p("graphs", "t.json"), raw)
+        _RECEIPTS_CACHE.clear()
+        notes = _capture_json(cmd_doctor, _ns(fix=False))["notes"]
+        gap = [n for n in notes if "never asks for" in n]
+        empty = [n for n in notes if "NO rubric" in n]
+        return (len(gap) == 1 and len(empty) == 1
+                # the no-rubric case gets its OWN sentence and the repair that works: offering
+                # `--probe` for a node with no rubric is a no-op the user runs and re-reads
+                and "--rubric-json" in empty[0] and "--probe" in gap[0]
+                # ...and the id reaches the line SHELL-QUOTED, so pasting it runs one
+                # command. Asserting the metacharacter is absent would be wrong — it is part
+                # of the id and must be shown; what matters is that it arrives inert.
+                and shlex.quote(bad) in " ".join(notes)
+                and ("--node " + bad) not in " ".join(notes)
+                and shlex.split([n for n in gap if bad in n][0].split("repair with: ")[1]
+                                )[shlex.split([n for n in gap if bad in n][0]
+                                              .split("repair with: ")[1]).index("--node") + 1] == bad
+                and not os.path.exists(os.path.join(h, "PWNED")))
+    check("doctor's repair lines are shell-safe and name the repair that actually works",
+          fresh(_doctor_note_is_pasteable))
+
+    def _receipts_under_previous_is_since_last(h):
+        _add_ab()
+        _capture(cmd_rate, _ns(topic="t", node="a", rating="good", confidence=70,
+                               production="x", grade="partial", kind="encode"))
+        one = _capture_json(cmd_edit_node, _ns(topic="t", node="a", probe="probe two",
+                                               rubric_json=None, transfer_probe=None,
+                                               file=None, json=None))["receipts_under_previous"]
+        os.environ["ENGRAM_TODAY"] = "2026-07-20"
+        _capture(cmd_rate, _ns(topic="t", node="a", rating="good", confidence=70,
+                               production="y", grade="partial", kind="review"))
+        two = _capture_json(cmd_edit_node, _ns(topic="t", node="a", probe="probe three",
+                                               rubric_json=None, transfer_probe=None,
+                                               file=None, json=None))["receipts_under_previous"]
+        noop = _capture_json(cmd_edit_node, _ns(topic="t", node="a", probe="probe three",
+                                                rubric_json=None, transfer_probe=None,
+                                                file=None, json=None))
+        rev = load_graph("t")["nodes"]["a"]["revised"]
+        # 2 receipts exist; each revision may only claim the ones written since the last —
+        # summing the stamps must not exceed what is on disk, or the label lies.
+        return (one == 1 and two == 1
+                and sum(r["receipts_under_previous"] for r in rev) == 2
+                and noop["changed"] == [] and len(rev) == 2)
+    check("`receipts_under_previous` counts only since the LAST revision, and a no-op records none",
+          fresh(_receipts_under_previous_is_since_last))
+
+    def _no_warning_for_untouched_or_retired(h):
+        g = {"topic": "t", "title": "T", "order": ["a"], "nodes": {
+            "a": {"claim": "c", "probe": "What component distributes traffic across replicas?",
+                  "rubric": UNASKED}}}
+        _capture(cmd_add_topic, _ns(json=json.dumps(g)))
+        _capture(cmd_retire, _ns(topic="t", node="a", restore=False))
+        # `doctor` skips retired nodes; `add-topic` must agree, or the two surfaces tell
+        # different stories about one state
+        replaced = _capture_json(cmd_add_topic, _ns(json=json.dumps(g), replace=True))
+        doc = _capture_json(cmd_doctor, _ns(fix=False))
+        # ...and an --extend must not re-warn about nodes it never touched
+        g2 = {"topic": "t", "title": "T", "order": ["b"], "nodes": {
+            "b": {"claim": "c", "probe": "What is B?", "rubric": ["names B"]}}}
+        extended = _capture_json(cmd_add_topic, _ns(json=json.dumps(g2), extend=True,
+                                                    replace=False))
+        return (not any("criterion" in w for w in replaced["warnings"])
+                and doc["probe_gaps"] == []
+                and not any("a:" in w for w in extended["warnings"]))
+    check("add-topic does not warn about retired nodes or ones an --extend never touched",
+          fresh(_no_warning_for_untouched_or_retired))
+
+    # `revised` is engine-owned (docs/09 invariant 4). `retired` shipped with NEITHER half of
+    # this — a payload could mint one and `--replace` destroyed real ones — and it cost a
+    # release. Both halves are pinned here, in one check, so neither can rot alone.
+    def _revised_is_engine_owned(h):
+        g = {"topic": "t", "title": "T", "order": ["a"],
+             "nodes": {"a": {"claim": "c", "probe": "p", "rubric": ["r"],
+                             "revised": [{"at": "1999-01-01", "fields": ["probe"]}]}}}
+        _capture(cmd_add_topic, _ns(json=json.dumps(g)))
+        minted = load_graph("t")["nodes"]["a"].get("revised")
+        _capture(cmd_edit_node, _ns(topic="t", node="a", probe="a real repair",
+                                    rubric_json=None, transfer_probe=None))
+        real = load_graph("t")["nodes"]["a"]["revised"]
+        # ...and now re-author the topic over the top of it
+        g["nodes"]["a"].pop("revised")
+        _capture(cmd_add_topic, _ns(json=json.dumps(g), replace=True))
+        after = load_graph("t")["nodes"]["a"].get("revised")
+        return (not minted                      # a payload may not MINT a repair
+                and len(real) == 1 and real[0]["at"] == today().isoformat()
+                and after == real)              # ...and --replace may not DESTROY one
+    check("`revised` cannot be minted by a payload and survives --replace",
+          fresh(_revised_is_engine_owned))
+
+    # The fuzzer found this one, in the release that added it: the dedupe key was built
+    # straight out of a hand-editable receipt, and a dict in `topic` took `doctor` down —
+    # 302 crashes in 600 states, in the command whose whole job is to survive corruption.
+    def _doctor_survives_corrupt_probe_gap(h):
+        _add_ab()
+        with open(p("receipts", "t.jsonl"), "w") as f:
+            for bad in ({"topic": {"a": 1}, "node": ["x"], "probe_gap": [1]},
+                        {"topic": "t", "node": "a", "probe_gap": ["2", None, True, 0, -3]},
+                        {"topic": None, "node": None, "probe_gap": [2]},
+                        {"topic": 5.5, "node": {"n": 1}, "probe_gap": [1, 1, 1]}):
+                f.write(json.dumps(bad) + "\n")
+        _RECEIPTS_CACHE.clear()
+        out = _capture_json(cmd_doctor, _ns(fix=False))
+        # it must RETURN, and it must still have found the real gaps in the graph itself
+        return isinstance(out.get("probe_gaps"), list) and out.get("ok") is not None
+    check("doctor survives a hand-corrupted probe_gap instead of dying of it",
+          fresh(_doctor_survives_corrupt_probe_gap))
+
+    # A repaired probe is free text written by the tutor mid-session, so it takes the same
+    # channel every other free-text payload takes — a file. The skills document `--file`;
+    # this pins that it works and that it cannot smuggle in a schedule.
+    def _edit_node_by_file(h):
+        _add_ab()
+        _capture(cmd_rate, _ns(topic="t", node="a", rating="good", confidence=70,
+                               production="x", grade="partial", kind="encode"))
+        s0 = load_graph("t")["nodes"]["a"]["fsrs"]["s"]
+        nasty = 'What happens when a "quote" and $(touch /tmp/pwned) and `id` are in a probe?'
+        path = os.path.join(h, "edit.json")
+        write_json(path, {"probe": nasty, "rubric": ["names the thing", "says why"]})
+        out = _capture_json(cmd_edit_node, _ns(topic="t", node="a", probe=None,
+                                               rubric_json=None, transfer_probe=None,
+                                               file=path, json=None))
+        node = load_graph("t")["nodes"]["a"]
+        # ⚠ The engine-owned field is smuggled ALONGSIDE a legitimate one. A payload of only
+        # {"fsrs": …} is refused by the "nothing to edit" guard, so testing that proves the
+        # OTHER guard works — §4.5's fourth way a check turns out fake. This fixture keeps
+        # that guard silent so only the unknown-field refusal can produce the exception.
+        refused = raises(cmd_edit_node, _ns(topic="t", node="a", probe=None, rubric_json=None,
+                                            transfer_probe=None, file=None,
+                                            json='{"probe": "a real repair", '
+                                                 '"fsrs": {"s": 999}}'))
+        untouched = load_graph("t")["nodes"]["a"]["fsrs"]["s"] == s0
+        return (node["probe"] == nasty                      # survives verbatim, unexecuted
+                and not os.path.exists("/tmp/pwned")
+                and sorted(out["changed"]) == ["probe", "rubric"]
+                and node["fsrs"]["s"] == s0                 # the schedule did not move
+                and refused and untouched)                  # ...and could not be asked to
+    check("edit-node takes a repaired probe by FILE and refuses engine-owned fields",
+          fresh(_edit_node_by_file))
+
     print("\n%d/%d checks passed" % (total[0] - len(failures), total[0]))
     sys.exit(1 if failures else 0)
 
@@ -11393,6 +12257,19 @@ def main():
     sp.add_argument("--topic", required=True)
     sp.add_argument("--node", help="one node; omit to retire the whole topic")
     sp.add_argument("--restore", action="store_true", help="put it back on the list")
+
+    sp = sub.add_parser("edit-node", help="repair ONE node's grading contract in place "
+                                          "(probe / rubric / transfer_probe). Schedules, "
+                                          "receipts and registrations are untouched.")
+    sp.add_argument("--topic", required=True)
+    sp.add_argument("--node", required=True)
+    sp.add_argument("--probe", help="the new probe — must ask for every rubric criterion")
+    sp.add_argument("--rubric-json", help='the new rubric as a JSON array, e.g. \'["names X", "says why Y"]\'')
+    sp.add_argument("--transfer-probe", help="the new transfer probe (empty string clears it)")
+    sp.add_argument("--file", help="JSON object {probe?, rubric?, transfer_probe?} — the "
+                                   "SAFE channel for a rewritten probe; skills use this, "
+                                   "never the inline flags (shell-safety rule)")
+    sp.add_argument("--json", help="the same object inline, or '-' to read it from stdin")
 
     sp = sub.add_parser("decay")
     sp.add_argument("--topic")
@@ -11532,6 +12409,7 @@ def main():
         "export": cmd_export, "retire": cmd_retire,
         "adjudication-stats": cmd_adjudication_stats,
         "propose": cmd_propose, "adaptations": cmd_adaptations,
+        "edit-node": cmd_edit_node,
     }
     # Serialize state mutators: the skills run engine processes concurrently by
     # design (background artifact-smith registering while the tutor rates), and
@@ -11547,7 +12425,7 @@ def main():
     mutating = {"init", "add-topic", "rate", "receipt", "stash", "model", "focus",
                 "visuals", "artifact", "misconception", "experiment",
                 "log-session", "refit", "commit", "assessor-audit", "capstone", "export",
-                "retire"}
+                "retire", "edit-node"}
     # `doctor` is a READ — except with --fix, which renames a quarantined file into the
     # live graphs/ path. Unlocked, that is a TOCTOU against any concurrent writer: its
     # `os.path.exists(dest)` guard has no lock behind it, and POSIX rename REPLACES, so a
