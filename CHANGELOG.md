@@ -1,5 +1,135 @@
 # Changelog
 
+## 1.10.0 — 2026-07-28 · The answerable rubric
+
+[Issue #13](https://github.com/nagisanzenin/engram/issues/13): *"the rubric expects a part that no
+reasonable person would include in their answer just going by the probe. I answer the probes as they
+are presented but get punished because I miss part of the rubric that I couldn't reasonably come up
+with."* Reported at 3–4 nodes per 20-node DAG, with the reporter repairing each one by hand.
+
+It reproduces, and it is not model noise. **The two agent specs disagreed by construction.** The
+architect anchored the probe to the claim — *"a free-recall question whose answer is the claim"* —
+and left the rubric free to ask for more than the claim contains. The assessor then requires **all**
+criteria for `recalled`, rounds down when torn, and has no instruction anywhere permitting it to
+discount a criterion the probe never requested. Every mismatch therefore resolved against the
+learner, and nothing in the system could even see it happening.
+
+**And the grade is not the damage.** The grade writes an FSRS receipt. A rubric asking for something
+the probe never requested does not merely annoy someone — it **schedules real reviews of material
+they already know**, forever, quietly. That is a defect in the instrument, which is why this is
+engine code and not just a better prompt.
+
+### What it looks like at scale
+
+Measured over **62 architect-authored nodes** in three topics before a line was written:
+
+- **24 (39%)** carry a *framing / purpose / consequence* criterion — "frames it as…", "connects it
+  to…", "draws the consequence…", "states the purpose is…".
+- It sits in the **last** rubric slot in 19 of those 24 (11× at 3-of-3, 8× at 4-of-4). The failure
+  has a shape: write the criteria that answer the probe, then add one more that reframes.
+- Of the graded receipts on nodes carrying one, that criterion was the one marked missed in
+  **8 of 8**.
+
+The assessor had been narrating the defect all along, into notes nobody aggregated —
+*"**Answered both direct probe asks cold**, so core is present"* (graded `partial`);
+*"'frames it as a freshness-vs-speed tradeoff' — MISSED… **the probe itself supplied that
+framing**"*; *"named 'cdn' correctly (**probe already supplied 'edge-caching building block'**),
+but produced no description"*.
+
+**The honest scope of that number:** three topics, one account, one architect model family. It is
+evidence that the defect is systematic and shaped, not a population estimate, and the 39% should not
+be quoted as a rate for anyone else's graphs.
+
+### The fix, in four places — because no single one of them is sufficient
+
+**Theory / agents.** The architect now states that the probe and the rubric are **one object**, with
+a three-step self-check done literally per node: read the probe alone, write the answer a competent
+learner would give, mark that answer against your own rubric — *every criterion it fails is a defect
+in the probe or the rubric, never in the learner*. Plus the mirror rule: **if the probe says it, the
+rubric may not require it.**
+
+**And the embarrassing part, said out loud:** the bullet that shipped this bug *demonstrated* it.
+The spec's own example rubric was `["names both terms", "explains why normalization is needed"]`,
+printed directly beneath a definition of `probe` as *"a question whose answer is the claim"* — and
+the claim ("the posterior is the prior reweighted by likelihood and renormalized") says nothing
+about why normalization is needed. A learner answering that probe perfectly was capped at `partial`
+**by the example**. It has been rewritten into a coherent pair.
+
+**Engine — `add-topic` warns at authoring time.** A deterministic check pairs each rubric criterion
+against the probe by *family*: a criterion demanding a framing, a consequence, or a why is flagged
+only when the probe requests nothing of **that kind**. It fires on 35% of the 60 real non-capstone
+nodes above and catches **7 of the 8** receipt-confirmed cases. A warning, never a `die()` — a
+payload costs real minutes to author and a false positive must never destroy one.
+
+**Engine — `doctor` finds the ones you already have.** New `probe_gaps`, uncapped, one narrator line
+per topic naming the repair command. A **note**, never an issue: a graph authored before this check
+existed is not corrupt, and flipping `doctor` red for the engine's own past leniency is the trap the
+artifact note learned two releases ago.
+
+**Agents — `probe_gap` on the assessor's output.** The regex catches a shape; only a reader catches
+meaning. The blind assessor now reports the 1-based criteria the probe never asked for — and
+**⚠ it does not move the grade, by explicit instruction.** Forgiving a criterion because the probe
+was badly written would inflate the one number this repo cannot ship wrong and bury the defect
+inside a better-looking score. It perceives; `edit-node` repairs; the grade stays honest about what
+was actually produced. `doctor` collects both halves into one list.
+
+**Engine — `edit-node`, the verb that was missing.** Until now the only way to change a probe was
+`add-topic --replace`: re-author an entire topic to fix one sentence. Nobody makes that trade
+mid-session, so the mismatch stayed and kept scheduling. `edit-node --topic T --node N --probe …`
+(and/or `--rubric-json`, `--transfer-probe`) edits **the contract and nothing else** — `fsrs`,
+`state`, `artifact`, `retired`, `arc` and every receipt are untouched, and the node records `revised`
+with the date, the fields, and how many receipts predate the change, so a later reader cannot compare
+a v2 rubric against v1 verdicts and see a learner who got worse.
+
+**Behavior.** `/learn` and `/review` relay a `probe_gap` as *the card's fault, not yours*, then repair
+it in the session while the misfiring criterion is still on screen — and grade the production exactly
+as it stands. `/review` also runs the check by hand before marking any criterion missed.
+
+### What was cut, and why that is the finding
+
+A second detector — *leak-then-demand*, where the probe states the thing in its stem and a criterion
+requires it back — was written, measured, and **removed**. Word overlap cannot separate a probe that
+**asserts** a fact from one that **asks** about it: *"what does the model condition on?"* shares
+nearly every content word with the criterion that answers it, so the rule flagged correct nodes. It
+now lives only where meaning is available — the architect's self-check and the assessor's
+`probe_gap`. **A warning nobody believes is worse than no warning**, and this repo has shipped enough
+gates that cry wolf to know the difference.
+
+Two more from building it, both caught by measuring rather than by reading: an unbounded `connects?`
+matched **"least-connections"** and flagged a criterion the probe plainly asked for; and a single
+probe-level "does this ask for elaboration at all?" boolean flagged all three criteria of a node
+whose probe said *"give the mechanism"* — which requests a framing and says nothing about
+consequences. Both are now pinned by checks that fail if the fix is reverted.
+
+**Known miss, stated rather than rounded away:** the check goes silent on any probe containing an
+explicit `why`/`explain`, which is what stops it flagging criteria such a probe plainly invited. That
+costs one of the eight confirmed cases (`cap-theorem`, whose probe ends *"and why can't you escape
+it?"* while criterion 1 asks for a scoping the probe never requests). Recall was traded for the one
+property that makes an authoring warning worth having: **a repaired probe must stop warning.**
+
+### Tests
+
+**279 → 294 checks.** All 15 mutation-tested per §4.5 (15/15 caught by their own check) — including
+the two that assert an **absence** (the detector stays silent), where the mutation had to *introduce
+the false positive* rather than break the detector. `probe_gap` is validated as a closed shape at
+ingest: `bool` is an `int` in Python and sails straight through a naive check, so it is excluded by
+name.
+
+**And the fuzz gate caught this release's worst bug, in this release's own code.** The new
+`doctor` scan built its dedupe key straight out of a hand-editable receipt —
+`(r.get("topic"), r.get("node"), c)` — so a `topic` holding a dict made the tuple unhashable:
+**302 crashes in 600 states**, in the one command that exists to survive corruption and must never
+die of what it exists to find. Every field is coerced before it is hashed or sorted; **0 crashes /
+600 states** after. `scripts/fuzz.py` also now randomizes `rubric`, `revised` and `probe_gap`,
+because a feature that adds read paths and not their fuzz coverage produces a gate that comes back
+green about code it never executed.
+
+Two smaller ones from the same discipline. **`revised` is engine-owned and arrived with both halves
+of invariant 4** — stripped from any payload, carried across `--replace` — because `retired` shipped
+with *neither* and cost a release; one check pins both so they cannot rot apart. And the missed
+`ENGRAM_VERSION` bump went red exactly where §2 says it would.
+
+
 ## 1.9.1 — 2026-07-24 · What the merge gates found
 
 Before merging v1.3–v1.9 to `main`, the two gates that had been skipped across the whole

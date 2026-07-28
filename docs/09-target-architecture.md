@@ -124,9 +124,20 @@ reminder system; it is the learner's own sentence, repeated to them.
     "state": "untested|probed|applied",
     "last": "2026-08-01",
     "receipts": 2
-  }
+  },
+
+  // NEW — v1.10, the grading contract can be repaired without re-authoring the topic
+  "revised": [                       // engine-owned; written only by `edit-node`
+    {"at": "2026-07-28", "fields": ["probe"], "receipts_under_previous": 3}
+  ]
 }
 ```
+
+`revised` exists so that a repaired contract is **visible** rather than silent. Receipts are
+append-only and carry their own `probe`/`rubric_notes`, so history stays self-describing — but
+without this stamp a later reader would compare a v2 rubric against v1 verdicts and see a learner
+who got worse. It obeys invariant 4 like every other engine-owned field: stripped from any payload,
+carried forward across `--replace`.
 
 A node is not "mastered" because it was recalled. It is **retained** when recall survives a
 month, and **owned** when it fires on a transfer probe. Three different claims, three different
