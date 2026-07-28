@@ -163,10 +163,12 @@ python3 "$ENGRAM" misconception add --topic <t> --node <n> --description "<the a
 
 **If an item comes back with `probe_gap` (v1.10, issue #13), the node is at fault — say so, and fix it.** It means the assessor found a rubric criterion the *probe never asked for*, so the learner was marked down for something they could not reasonably have known to include. Do not let that pass silently and do not argue the grade: name it plainly (*"criterion 3 wanted the consequence and the question never asked for one — that's the card's fault, not yours"*), then repair the card in place. Neither the schedule nor any receipt is touched:
 
+Write the repair to a file first — a rewritten probe is free text you just authored, and the shell-safety rule above covers it exactly as it covers a learner's production:
+
 ```bash
-python3 "$ENGRAM" edit-node --topic <t> --node <n> \
-  --probe "<the same question, now also asking for what criterion N marks>"
-# or narrow the contract instead:  --rubric-json '["criterion 1", "criterion 2"]'
+python3 "$ENGRAM" edit-node --topic <t> --node <n> --file <tmpfile.json>
+# tmpfile.json = {"probe": "<the same question, now also asking for what criterion N marks>"}
+# or narrow the contract instead: {"rubric": ["criterion 1", "criterion 2"]}
 ```
 
 Do it in the session, while the learner can see the criterion that misfired — a card left mis-specified keeps scheduling reviews of material they already know, which is the actual cost. The grade itself stays exactly as the assessor set it: a `partial` earned against an unfair criterion is still what the learner produced, and inflating it would put a wrong number where it does the most damage.

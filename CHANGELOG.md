@@ -93,7 +93,33 @@ requires it back — was written, measured, and **removed**. Word overlap cannot
 nearly every content word with the criterion that answers it, so the rule flagged correct nodes. It
 now lives only where meaning is available — the architect's self-check and the assessor's
 `probe_gap`. **A warning nobody believes is worse than no warning**, and this repo has shipped enough
-gates that cry wolf to know the difference.
+gates that cry wolf to know the difference. (Precisely: the scan has **no rule** for the mirror case
+and catches one only by coincidence, when the criterion *also* demands an elaboration. A mirror
+criterion phrased as plain recall is invisible to it, and the specs say so rather than implying
+coverage the code does not have.)
+
+### What the dogfood found — in this release's own spec
+
+The blind assessor emitted `probe_gap` unprompted from the spec alone, it rode the receipt intact,
+it reached `doctor` beside the deterministic scan, and it caught the leak-then-demand criterion the
+regex is documented as unable to reason about. It also **did not move either grade** — though on one
+item the separation between `partial` and `recalled` rested entirely on a criterion the field had
+just flagged as unfair, which is exactly where an inflating grader would have inflated.
+
+And it found two ambiguities **in the instruction I had just written**, both of which changed its
+output:
+
+- *"Judge it the way the learner met it"* parses two ways — *read the probe alone* and *only flag
+  what they missed*. Those disagree. It is now **judge from the probe ONLY, never the production**,
+  stated as its own warning, because a criterion the learner happened to volunteer is still unfair
+  if the question never asked for it.
+- The headline bar (*"the probe does not request"*) and the elaboration bar (*"a competent answer
+  could not reach"*) were different widths, and a real criterion sat between them. There is now
+  **one bar, and it is the word *necessarily***.
+
+This is the fourth time this repo has recorded a grader defect that traced to an ambiguity in the
+grader's own spec rather than to the grader. The pattern is not going away, and the only thing that
+has ever caught one is handing the spec to a reader who was told nothing else.
 
 Two more from building it, both caught by measuring rather than by reading: an unbounded `connects?`
 matched **"least-connections"** and flagged a criterion the probe plainly asked for; and a single
@@ -109,9 +135,18 @@ property that makes an authoring warning worth having: **a repaired probe must s
 
 ### Tests
 
-**279 → 294 checks.** All 15 mutation-tested per §4.5 (15/15 caught by their own check) — including
-the two that assert an **absence** (the detector stays silent), where the mutation had to *introduce
-the false positive* rather than break the detector. `probe_gap` is validated as a closed shape at
+**279 → 295 checks.** All 16 mutation-tested per §4.5 — **15 real on the first attempt, one theatre.**
+The fake one asserted that `edit-node` refuses an engine-owned field, using a payload of *only*
+`{"fsrs": …}` — which the "nothing to edit" guard already rejects, so reverting the unknown-field
+refusal left the check green. §4.5's fourth failure mode, verbatim: *another gate already covers it.*
+Rebuilt with the engine-owned field smuggled **alongside** a legitimate one, so the other guard stays
+silent and only the refusal under test can fire. 16/16 after the rebuild. The running score in this
+file is now 3 fake checks in v0.6, 4 in v0.7, 1 here — and the rate still is not the point; **the
+mutation test remains the only thing that has ever caught one.**
+
+That set includes the two checks asserting an **absence** (the detector stays silent), where the
+mutation had to *introduce the false positive* rather than break the detector. `probe_gap` is
+validated as a closed shape at
 ingest: `bool` is an `int` in Python and sails straight through a naive check, so it is excluded by
 name.
 

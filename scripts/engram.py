@@ -4493,8 +4493,31 @@ def cmd_edit_node(args):
     against v1 verdicts and see a learner who got worse. `revised` records when and what.
     """
     require_slug(args.topic)
+    # ⚠ A REPAIRED PROBE IS FREE TEXT, so it gets the same channel every other free-text
+    # payload in this engine gets: a file (or stdin), never the command line. The skills'
+    # shell-safety rule exists because a stray quote or `$(…)` in model-authored text would
+    # execute — and this verb is invoked mid-session by a tutor that just wrote the sentence.
+    # The inline flags stay for hand use at a terminal; `--file` is what the skills document.
+    if getattr(args, "file", None) or getattr(args, "json", None) is not None:
+        payload = load_payload(args)
+        if not isinstance(payload, dict):
+            die("edit-node payload must be a JSON object with any of: probe, rubric, "
+                "transfer_probe")
+        unknown = sorted(set(payload) - {"probe", "rubric", "transfer_probe"})
+        if unknown:
+            die("edit-node refuses unknown field(s): %s. This verb edits the GRADING "
+                "CONTRACT only — schedules, receipts and registrations advance through "
+                "receipts, never through an edit (docs/09 invariant 4)." % ", ".join(unknown))
+        if "probe" in payload:
+            args.probe = payload["probe"] if isinstance(payload["probe"], str) else ""
+        if "rubric" in payload:
+            args.rubric_json = json.dumps(payload["rubric"])
+        if "transfer_probe" in payload:
+            tp = payload["transfer_probe"]
+            args.transfer_probe = tp if isinstance(tp, str) else ""
     if not any([args.probe, args.rubric_json, args.transfer_probe is not None]):
-        die("nothing to edit: pass --probe, --rubric-json, and/or --transfer-probe "
+        die("nothing to edit: pass --probe, --rubric-json and/or --transfer-probe, or "
+            "--file/--json carrying any of {probe, rubric, transfer_probe} "
             "(to restructure a topic use `add-topic --replace`; to add an arc, --extend)")
     g = load_graph(args.topic)
     nodes = graph_nodes(g)
@@ -11763,6 +11786,38 @@ def cmd_selftest(_args):
     check("doctor survives a hand-corrupted probe_gap instead of dying of it",
           fresh(_doctor_survives_corrupt_probe_gap))
 
+    # A repaired probe is free text written by the tutor mid-session, so it takes the same
+    # channel every other free-text payload takes — a file. The skills document `--file`;
+    # this pins that it works and that it cannot smuggle in a schedule.
+    def _edit_node_by_file(h):
+        _add_ab()
+        _capture(cmd_rate, _ns(topic="t", node="a", rating="good", confidence=70,
+                               production="x", grade="partial", kind="encode"))
+        s0 = load_graph("t")["nodes"]["a"]["fsrs"]["s"]
+        nasty = 'What happens when a "quote" and $(touch /tmp/pwned) and `id` are in a probe?'
+        path = os.path.join(h, "edit.json")
+        write_json(path, {"probe": nasty, "rubric": ["names the thing", "says why"]})
+        out = _capture_json(cmd_edit_node, _ns(topic="t", node="a", probe=None,
+                                               rubric_json=None, transfer_probe=None,
+                                               file=path, json=None))
+        node = load_graph("t")["nodes"]["a"]
+        # ⚠ The engine-owned field is smuggled ALONGSIDE a legitimate one. A payload of only
+        # {"fsrs": …} is refused by the "nothing to edit" guard, so testing that proves the
+        # OTHER guard works — §4.5's fourth way a check turns out fake. This fixture keeps
+        # that guard silent so only the unknown-field refusal can produce the exception.
+        refused = raises(cmd_edit_node, _ns(topic="t", node="a", probe=None, rubric_json=None,
+                                            transfer_probe=None, file=None,
+                                            json='{"probe": "a real repair", '
+                                                 '"fsrs": {"s": 999}}'))
+        untouched = load_graph("t")["nodes"]["a"]["fsrs"]["s"] == s0
+        return (node["probe"] == nasty                      # survives verbatim, unexecuted
+                and not os.path.exists("/tmp/pwned")
+                and sorted(out["changed"]) == ["probe", "rubric"]
+                and node["fsrs"]["s"] == s0                 # the schedule did not move
+                and refused and untouched)                  # ...and could not be asked to
+    check("edit-node takes a repaired probe by FILE and refuses engine-owned fields",
+          fresh(_edit_node_by_file))
+
     print("\n%d/%d checks passed" % (total[0] - len(failures), total[0]))
     sys.exit(1 if failures else 0)
 
@@ -11867,6 +11922,10 @@ def main():
     sp.add_argument("--probe", help="the new probe — must ask for every rubric criterion")
     sp.add_argument("--rubric-json", help='the new rubric as a JSON array, e.g. \'["names X", "says why Y"]\'')
     sp.add_argument("--transfer-probe", help="the new transfer probe (empty string clears it)")
+    sp.add_argument("--file", help="JSON object {probe?, rubric?, transfer_probe?} — the "
+                                   "SAFE channel for a rewritten probe; skills use this, "
+                                   "never the inline flags (shell-safety rule)")
+    sp.add_argument("--json", help="the same object inline, or '-' to read it from stdin")
 
     sp = sub.add_parser("decay")
     sp.add_argument("--topic")

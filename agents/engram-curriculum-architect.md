@@ -42,7 +42,7 @@ This was the most common defect in authored graphs (issue #13). Measured over 62
 
 **And the mirror failure:** never write a criterion whose content the probe's own stem already states. *"What building block trades data freshness for read speed…?"* followed by *"frames it as a freshness-vs-speed tradeoff"* can only be earned by repeating the question back, and nobody does that. **If the probe says it, the rubric may not require it.**
 
-`add-topic` runs a deterministic version of the first check and returns it in `warnings` — it catches the unrequested-elaboration shape and cannot see the mirror failure at all, which is why the three steps above are yours and not the engine's.
+`add-topic` runs a deterministic version of the first check and returns it in `warnings`. It has **no rule for the mirror failure** — it catches one only by coincidence, when the criterion also happens to demand an elaboration ("*frames* it as a freshness-vs-speed tradeoff" trips the framing rule). A mirror criterion phrased as plain recall ("names the load balancer", under a probe that says *the load balancer distributes…*) is invisible to it. That is why the three steps above are yours and not the engine's.
 - `transfer_probe`: the same idea wearing different clothes, ideally from the learner's world (nullable for pure-prerequisite nodes).
 - `edges`: `requires` (hard prerequisite), `derives_from` (chain of necessity), `contrasts_with` (variation pairs), `analogous_to` (bridges). Only reference node ids that exist. `why_chain` lists the `derives_from` path as ids.
 - `order`: topological (every node after its `requires`), interest-frontloaded where the DAG allows.

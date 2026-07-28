@@ -81,9 +81,11 @@ The `due` payload gives you `probe`, `claim` (canonical answer), and `rubric` �
    **⚠ Before you mark a criterion missed, check that the probe asked for it (v1.10, issue #13).** Read the probe you just served, alone, and ask what a competent answer to *that question* would contain. If a criterion is outside it — it wants a consequence nobody was asked to draw, or its content is already sitting in the probe's own stem so it could only be earned by repeating the question back — then the card is broken, not the learner. Say so in one line, grade the production exactly as it stands (an unfair criterion never lifts a grade — that is how a wrong number gets believed), and repair the card before moving on:
 
    ```bash
-   python3 "$ENGRAM" edit-node --topic <t> --node <n> \
-     --probe "<the same question, now also asking for what that criterion marks>"
+   python3 "$ENGRAM" edit-node --topic <t> --node <n> --file <tmpfile.json>
+   # tmpfile.json = {"probe": "<the same question, now also asking for what that criterion marks>"}
    ```
+
+   Write the file first — a rewritten probe is free text you just authored, and the shell-safety rule covers it exactly as it covers a learner's production.
 
    Schedules, receipts and registrations are untouched by this; only the contract moves. On assessor-graded items the same signal arrives as `probe_gap` in the returned item — treat it identically. `doctor` lists every node in this state under `probe_gaps` if the learner would rather sweep them all at once.
 4. Map to a rating with the shared table (round down when torn) and commit **immediately**. Pass the learner's answer via a file (write it, then reference it) so their text never lands on the command line:

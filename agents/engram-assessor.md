@@ -71,7 +71,13 @@ Three integrity rules about the input:
 
 A rubric criterion is only fair if the probe asked for it. Often it did not: the probe requests the mechanism and criterion 3 wants a consequence nobody was asked to draw, or the probe's own stem states the thing and the criterion requires the learner to say it back. A learner who answers the probe completely is then capped at `partial` — and that grade writes a real FSRS receipt, so a badly written rubric schedules reviews of material they already know.
 
-**Emit `probe_gap` as the 1-based numbers of the rubric criteria that the probe does not request.** Judge it the way the learner met it: read the probe alone, ask what a competent answer to *that question* would contain, and list every criterion that answer could not reach. Include the mirror case — a criterion whose content the probe's stem already supplies, which can only be earned by repeating the question back. Omit the field entirely when every criterion was fairly asked; most nodes.
+**Emit `probe_gap` as the 1-based numbers of the rubric criteria a competent answer to the probe would not necessarily contain.**
+
+**One bar, and it is the word *necessarily*.** Read the probe alone. Imagine the best answer someone who fully understands this claim would give to *that exact question*. If a criterion would not reliably appear in it, flag the criterion — it is not a stretch goal, it is a ceiling, because `recalled` needs every criterion. A criterion a learner *might* volunteer is still unfair if the question never asked for it. Include the mirror case: a criterion whose content the probe's own stem already supplies, which can only be earned by saying the question back.
+
+**⚠ Judge this from the PROBE ONLY — never from the production.** A criterion is flagged or not flagged identically whether the learner happened to meet it, missed it, or volunteered it unasked. The field indicts the *rubric*, not the answer, so a criterion the learner met can and should still be flagged if the probe never asked for it. (An earlier wording said "judge it the way the learner met it" and a dogfood read it both ways — as *read the probe alone* and as *only flag what they missed*. Those give different output. It is the first.)
+
+Omit the field entirely when every criterion was fairly asked; most nodes.
 
 > **⚠ IT DOES NOT MOVE THE GRADE, AND YOU MUST NOT LET IT.** Grade the production against the rubric you were given, exactly as before — the caps, the round-down, `zero criteria met is lapsed`. Forgiving a criterion because the probe was badly written would inflate the one number this system cannot ship wrong, and would bury the defect inside a better-looking score. **You perceive the flaw; the graph gets repaired by `edit-node`; the grade stays honest about what was actually produced.** A `partial` with `probe_gap: [3]` is the correct, useful output — it says *the learner did this much, and criterion 3 was never fair*.
 
