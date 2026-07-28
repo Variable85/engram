@@ -57,9 +57,13 @@ about why normalization is needed. A learner answering that probe perfectly was 
 
 **Engine — `add-topic` warns at authoring time.** A deterministic check pairs each rubric criterion
 against the probe by *family*: a criterion demanding a framing, a consequence, or a why is flagged
-only when the probe requests nothing of **that kind**. It fires on 35% of the 60 real non-capstone
-nodes above and catches **7 of the 8** receipt-confirmed cases. A warning, never a `die()` — a
-payload costs real minutes to author and a false positive must never destroy one.
+only when the probe requests nothing of **that kind**. A warning, never a `die()` — a payload costs
+real minutes to author and a false positive must never destroy one.
+
+Measured on three corpora, because one corpus measures the author's own habits: **precision 0.83 /
+recall 0.71** on a 48-pair adversarial set with ground truth fixed before the code ran; **7 of the 8**
+receipt-confirmed cases on real graphs (fires on 37% of 60 nodes); **7%** on the shipped gold set.
+Those are the numbers after the review below; the first draft measured **0.34**.
 
 **Engine — `doctor` finds the ones you already have.** New `probe_gaps`, uncapped, one narrator line
 per topic naming the repair command. A **note**, never an issue: a graph authored before this check
@@ -126,6 +130,57 @@ matched **"least-connections"** and flagged a criterion the probe plainly asked 
 probe-level "does this ask for elaboration at all?" boolean flagged all three criteria of a node
 whose probe said *"give the mechanism"* — which requests a framing and says nothing about
 consequences. Both are now pinned by checks that fail if the fix is reverted.
+
+### What the adversarial review found — 13 defects, one HIGH, behind 294 green checks
+
+Two independent reviewers were pointed at an extracted release tree. Between them they found
+thirteen defects that every mechanical gate had passed over, and the pattern is this file's oldest:
+**a green selftest says nothing about the design.**
+
+**HIGH — the assessor half of `doctor` could never clear.** Receipts are append-only, so the
+cross-reference replayed every historical `probe_gap` on every run. A learner who repaired a node
+*exactly as the narrator instructed* watched the count refuse to move, and was re-offered the same
+now-useless repair command forever. **The release's own published instrument property — *a repaired
+probe must stop warning* — held for the regex half only.** A flag is now dropped when the node was
+revised at or after the receipt, when the criterion index no longer exists in the current rubric,
+and when the node is gone or retired. That is also what finally makes `revised` a field something
+*reads*, rather than one more guard nobody consumes.
+
+**And the check itself was measurably not believable.** A reviewer built a 48-pair set with ground
+truth fixed before running anything and measured **precision 0.34** — two of every three warnings
+wrong. Worse, it falsified the load-bearing property directly: **six of seven natural repairs of a
+probe still fired**, including one repaired with the criterion's own verb (*"...and what **connects**
+it to horizontal scaling?"*). The selftest passed only because it asserted the single phrasing that
+had been hand-tuned into the regex — a confirmatory test on the one example the author had in mind.
+
+The root cause was an asymmetry nobody would spot by reading: the *demand* side was written with
+inflections (`connects?`, `consequences?`, `\w*`) and the *request* side was not, so every
+inflection mismatch became a false positive. `implicat` could never match at all — the trailing
+`\b` requires a non-word character after it, and every real inflection continues with one. Fixed by
+inflecting the request side, and then by removing the dependence on that list entirely: **if the
+probe uses the criterion's own demand word, in any inflection, the criterion is never flagged.** An
+enumerated list cannot guarantee that property, because the list is finite and English is not.
+
+Three demand markers were **ordinary rubric vocabulary** and are gone: `so that` and `matters` (a
+titration step reads *"sets up the burette **so that** the meniscus reads zero"*), `notes that`, and
+a bare `links?` — which matched the **noun** "link" in a curriculum about certificate chains
+(*"one failing **link** fails the whole chain"*). That is the same noun/verb collision as `connects?`
+matching "least-connections", one release later, inside the fix for it.
+
+The rest, each now pinned: `receipts_under_previous` counted *every* receipt rather than those since
+the last revision, so summing the stamps exceeded the receipts on disk and the label was false —
+falsifying this release's own numbers audit, which claimed it *"cannot overcount"*; `doctor`
+interpolated hand-editable ids into a shell command the skills are written to **paste**;
+`add-topic` warned about retired nodes and re-warned every untouched node on an `--extend`, while
+`doctor` called the same nodes clean; a `no-rubric` finding got a narrator sentence describing the
+wrong defect and a repair command that is a no-op; both detectors reaching one criterion produced
+two rows in the list the numbers audit reconciles by length; `edit-node` stamped a revision for a
+no-op edit and misreported a corrupt node as an unknown one.
+
+**The uncomfortable one:** the numbers audit in `docs/release-audits/` was written before the review
+and asserted two properties the review falsified. It has been corrected in place rather than
+quietly, because *"a provenance field that lies is worse than none"* applies to an audit document
+at least as much as to a payload.
 
 **Known miss, stated rather than rounded away:** the check goes silent on any probe containing an
 explicit `why`/`explain`, which is what stops it flagging criteria such a probe plainly invited. That
