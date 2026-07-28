@@ -188,6 +188,19 @@ costs one of the eight confirmed cases (`cap-theorem`, whose probe ends *"and wh
 it?"* while criterion 1 asks for a scoping the probe never requests). Recall was traded for the one
 property that makes an authoring warning worth having: **a repaired probe must stop warning.**
 
+### The gate that did not run
+
+**§5.6, the user session, was not run for this release.** It is the one gate that asks *would a
+stranger get through this*, and it requires a human learning something they do not know, over real
+days. Nothing here fakes it, and no verdict is claimed on its behalf.
+
+What that leaves unmeasured is specific: whether being told *"that criterion was the card's fault,
+not yours"* mid-session actually lands as absolution rather than as an excuse, and whether stopping
+to repair a card breaks the rhythm of a review queue. Both are prose judgments this release changed,
+and both are exactly what the gate exists to catch. Everything mechanical around them — the warning
+text, the `doctor` note, the in-session repair, the schedule staying put — was driven end to end in
+§5, and the dogfood exercised the agent side.
+
 ### Tests
 
 **279 → 295 checks.** All 16 mutation-tested per §4.5 — **15 real on the first attempt, one theatre.**
