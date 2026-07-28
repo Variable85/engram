@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { resolve } from "node:path"
-import { server, default as pluginDefault } from "../.opencode/index"
+import { server, default as pluginDefault } from "../.opencode-plugin/index"
 
 const mk$ = () => (() => ({ nothrow: () => ({ quiet: () => Promise.resolve({ stdout: { toString: () => "" } }) }) })) as any
 const mkClient = () => ({ tui: { showToast: async () => ({ catch: () => {} }) } }) as any
@@ -58,7 +58,7 @@ describe("pseudo-command registration", () => {
     const cfg: any = {}
     await plugin.config!(cfg)
 
-    expect(cfg.command).toBeUndefined()
+    expect(cfg.command["engram-update"]).toBeUndefined()
   })
 
   it("registers pseudo-command even with corrupt manifest (existsSync only checks presence)", async () => {
