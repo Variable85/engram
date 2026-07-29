@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { engramUpdateTool } from "../.opencode/update-tool"
+import { engramUpdateTool } from "../.opencode-plugin/update-tool"
 
 function createManifestDir(): string {
   const tmp = mkdtempSync(resolve(tmpdir(), "engram-tool-test-"))

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { diffLines } from "../.opencode/diff"
+import { diffLines } from "../.opencode-plugin/diff"
 
 describe("diffLines", () => {
   it("returns null for identical texts", () => {

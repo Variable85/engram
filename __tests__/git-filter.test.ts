@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync, copyFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { execSync } from "node:child_process"
-import { selfExtract, syncProjectState, writeOrPrependAgentsMd } from "../.opencode/install"
+import { selfExtract, syncProjectState, writeOrPrependAgentsMd } from "../.opencode-plugin/install"
 
 describe("git filter integration", () => {
   let tmp: string
@@ -183,7 +183,7 @@ describe("git filter integration", () => {
     try {
       // Extract should succeed — commands and version file are written
       selfExtract(pkg, tmp, "1.0.2")
-      expect(existsSync(resolve(target, "command", "learn.md"))).toBe(true)
+      expect(existsSync(resolve(target, "commands", "learn.md"))).toBe(true)
       expect(existsSync(resolve(target, ".engram-version.jsonc"))).toBe(true)
     } finally {
       chmodSync(resolve(tmp, ".git", "config"), 0o644)

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { warnClaudeMdCollision } from "../.opencode/claude-warning"
-import { selfExtract, syncProjectState } from "../.opencode/install"
+import { warnClaudeMdCollision } from "../.opencode-plugin/claude-warning"
+import { selfExtract, syncProjectState } from "../.opencode-plugin/install"
 
 describe("warnClaudeMdCollision (unit)", () => {
   let tmp: string

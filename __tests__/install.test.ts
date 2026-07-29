@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { getExtractTarget, needsExtract, readPrevVersion, copyMissing, selfExtract, getVERSION, resolveAgentsPath, writeOrPrependAgentsMd } from "../.opencode/install"
+import { getExtractTarget, needsExtract, readPrevVersion, copyMissing, selfExtract, getVERSION, resolveAgentsPath, writeOrPrependAgentsMd } from "../.opencode-plugin/install"
 
 describe("getExtractTarget", () => {
   let tmp: string
@@ -126,10 +126,10 @@ describe("selfExtract — engram-update is never written to disk", () => {
     const { freshlyExtracted, prevVersion } = selfExtract(pkg, tmp, "1.0.2")
     expect(freshlyExtracted).toBe(true)
     expect(prevVersion).toBeUndefined()
-    expect(existsSync(resolve(tmp, ".opencode", "command", "learn.md"))).toBe(true)
-    expect(existsSync(resolve(tmp, ".opencode", "command", "review-loop.md"))).toBe(true)
-    expect(existsSync(resolve(tmp, ".opencode", "command", "coach.md"))).toBe(true)
-    expect(existsSync(resolve(tmp, ".opencode", "command", "engram-update.md"))).toBe(false)
+    expect(existsSync(resolve(tmp, ".opencode", "commands", "learn.md"))).toBe(true)
+    expect(existsSync(resolve(tmp, ".opencode", "commands", "review-loop.md"))).toBe(true)
+    expect(existsSync(resolve(tmp, ".opencode", "commands", "coach.md"))).toBe(true)
+    expect(existsSync(resolve(tmp, ".opencode", "commands", "engram-update.md"))).toBe(false)
   })
 
   it("never writes engram-update.md even on update", () => {
@@ -139,7 +139,7 @@ describe("selfExtract — engram-update is never written to disk", () => {
 
     const { prevVersion } = selfExtract(pkg, tmp, "1.0.2")
     expect(prevVersion).toBe("0.9.0")
-    expect(existsSync(resolve(target, "command", "engram-update.md"))).toBe(false)
+    expect(existsSync(resolve(target, "commands", "engram-update.md"))).toBe(false)
   })
 
   it("writes .engram-update.jsonc on version bump", () => {
@@ -157,7 +157,7 @@ describe("selfExtract — engram-update is never written to disk", () => {
     expect(manifest.categories.skills).toBeDefined()
     expect(manifest.categories.agents).toBeDefined()
     expect(manifest.categories.scripts).toBeDefined()
-    expect(manifest.categories.command).toBeDefined()
+    expect(manifest.categories.commands).toBeDefined()
     expect(manifest.applied).toEqual([])
   })
 

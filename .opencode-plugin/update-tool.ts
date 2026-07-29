@@ -11,7 +11,7 @@
  * enabled/disabled via cfg.tools["engram_update"] in the config hook, using
  * the same existsSync gate as the /engram-update pseudo-command.
  *
- * When the manifest is resolved and deleted, cfg.tools["engram_update"] = false
+ * When the manifest is resolved and deleted, cfg.tools["engram_update"] = false + cfg.permission["engram_update"] = "deny"
  * hides the tool from the LLM on the next session.
  *
  * --- Modes ---
@@ -55,7 +55,7 @@
  *   → tool processes files, deletes manifest + version guard
  *   → next reload:
  *       existsSync → false → pseudo-command gone
- *       cfg.tools["engram_update"] = false → tool hidden
+ *       cfg.tools["engram_update"] = false + cfg.permission["engram_update"] = "deny" → tool hidden
  *       .engram-version.jsonc deleted → selfExtract treats as fresh install
  *       copyMissing with existsSync guard → user edits preserved
  *
@@ -87,7 +87,7 @@ function isWithinTarget(target: string, filePath: string): boolean {
 export const engramUpdateTool = tool({
   description: "Apply Engram plugin updates — delete preserved files and update the manifest. Only call when the /engram-update command instructs you.",
   args: {
-    target: tool.schema.string().describe("Target .opencode/ directory"),
+    target: tool.schema.string().describe("Target .opencode directory"),
     mode: tool.schema.enum(["auto", "per_file", "keep_as_is", "skip", "checkpoint", "cleanup"]).describe("Update mode"),
     decisions: tool.schema.array(tool.schema.object({
       file: tool.schema.string().describe("Relative file path from manifest categories"),

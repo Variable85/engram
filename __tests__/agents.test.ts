@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { resolve } from "node:path"
-import { resolveAgentsDir, registerAgents } from "../.opencode/agents"
+import { resolveAgentsDir, registerAgents } from "../.opencode-plugin/agents"
 
 describe("resolveAgentsDir", () => {
   let tmp: string
@@ -19,9 +19,8 @@ describe("resolveAgentsDir", () => {
     expect(resolveAgentsDir(tmp)).toBeNull()
   })
 
-  it("prefers agents/ over .opencode/agents/", () => {
+  it("finds agents/ when it exists", () => {
     mkdirSync(resolve(tmp, "agents"), { recursive: true })
-    mkdirSync(resolve(tmp, ".opencode", "agents"), { recursive: true })
     expect(resolveAgentsDir(tmp)).toBe(resolve(tmp, "agents"))
   })
 })
