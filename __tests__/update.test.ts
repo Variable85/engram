@@ -77,6 +77,44 @@ describe("update manifest state machine", () => {
     expect(existsSync(resolve(tmp, ".engram-update.jsonc"))).toBe(false)
   })
 
+  // A manifest written by <=1.9.1 uses the singular `command` key, because that was the
+  // directory name then. `readManifest` is the single gate that normalises it — and the
+  // normalisation shipped with no test, so an old-format manifest was back-compat by
+  // inspection only. These pin every place the old key appears, not just `categories`:
+  // `remaining` is what /engram-update iterates, and `applied` is what stops a category
+  // being offered twice.
+  it("migrates a pre-1.10 manifest's singular `command` key on read", () => {
+    writeFileSync(resolve(tmp, ".engram-update.jsonc"), JSON.stringify({
+      from: "1.9.1", to: "1.10.1", state: "pending",
+      remaining: ["skills", "command"],
+      applied: ["command"],
+      categories: {
+        skills: { added: ["a.md"], skipped: [] },
+        command: { added: ["learn.md"], skipped: ["coach.md"] },
+      },
+    }))
+    const m = readManifest(tmp)!
+    expect(m.categories.commands, "categories.command -> commands").toBeDefined()
+    expect(m.categories.command, "the old key is gone, not duplicated").toBeUndefined()
+    expect(m.categories.commands.skipped).toEqual(["coach.md"])
+    // the arrays matter as much as the object: `remaining` drives the update loop, and a
+    // stale "command" there names a category that no longer exists in `categories`
+    expect(m.remaining, "remaining is migrated").toEqual(["skills", "commands"])
+    expect(m.applied, "applied is migrated").toEqual(["commands"])
+  })
+
+  it("does not clobber a manifest that already has both keys", () => {
+    writeFileSync(resolve(tmp, ".engram-update.jsonc"), JSON.stringify({
+      from: "1.9.1", to: "1.10.1", state: "pending", remaining: [], applied: [],
+      categories: {
+        command: { added: ["old.md"], skipped: [] },
+        commands: { added: ["new.md"], skipped: [] },
+      },
+    }))
+    const m = readManifest(tmp)!
+    expect(m.categories.commands.added, "the NEW key wins").toEqual(["new.md"])
+  })
+
   it("readManifest returns null when no manifest exists", () => {
     expect(readManifest(tmp)).toBeNull()
   })

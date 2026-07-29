@@ -1,5 +1,73 @@
 # Changelog
 
+## 1.10.1 — 2026-07-29 · The plugin directory that was pretending to be two things
+
+A community PR ([#14](https://github.com/nagisanzenin/engram/pull/14), thanks
+[@luanweslley77](https://github.com/luanweslley77)) — the first outside contribution to the OpenCode
+layer. `.opencode/` held three different things at once: TypeScript source, the runtime extraction
+target, and npm artifacts. That is why an `install-type` split had to exist at all — extracting in
+dev mode would have overwritten the source it was extracting from.
+
+**Source moved to `.opencode-plugin/`**, so the extraction target is only ever a target. With that
+true, `detectInstallType()` had nothing left to decide and is gone: `selfExtract()` always runs.
+Dev mode, which quietly did not work, now does. `command/` → `commands/` (OpenCode's discovery glob
+is `{command,commands}/**/*.md`, so both spellings resolve — but shipping both would double-register
+the three commands, which is why the rename comes with a cleanup). `engram_update` is hidden by
+`cfg.permission` as well as `cfg.tools`, which is the mechanism OpenCode's runtime actually uses.
+
+### What review caught before it merged
+
+**A recursive delete that reached outside the project.** The first version of the legacy-directory
+cleanup was `rmSync(target/command, {recursive: true})`. `.opencode/command/` is not Engram's
+directory — it is the documented home for a user's *own* OpenCode commands, and Engram only ever
+wrote three files into it. Worse, `getExtractTarget()` falls back to the **global**
+`~/.config/opencode/` when a project has no `opencode.json`, so for those projects the delete
+landed in the user's home directory. Both were reproduced by running them, not by reading the diff.
+It now unlinks Engram's own three files and `rmdirSync`s the directory, which succeeds only if it is
+already empty.
+
+**And a documented safety decision, reversed.** The PR switched `.git/info/exclude` from `.engram-*`
+to `.opencode/`, four lines beneath a docstring explaining why that is exactly wrong: `.opencode/`
+holds the user's own agents and commands, `.git/info/exclude` is invisible from the working tree,
+and an exclude that outlives its reason is a trap where `git status` goes quiet about files the user
+meant to commit. The guard test written to hold that function honest had been **flipped to assert
+the new behaviour** — which is the signal to stop and read the docstring, not the signal to proceed.
+Reverted. The underlying need was real but dev-side: this repo's own `.opencode/` is generated output
+now, so it went into the repo's `.gitignore`, where it belongs.
+
+### Fixed here
+
+The manifest migration the PR added — a `.engram-update.jsonc` written by ≤1.9.1 carries the
+singular `categories.command` — **shipped with no test**, so back-compat was true by inspection
+only. Three checks now pin it at the single `readManifest` gate, including the `remaining` and
+`applied` arrays (a stale `"command"` in `remaining` names a category that no longer exists) and the
+case where both keys are present. All three mutation-tested.
+
+### Also worth saying out loud
+
+`@opencode-ai/plugin` moved from `dependencies` to `peerDependencies` inside a commit labelled
+`chore`. It is not a chore: `update-tool.ts` imports `tool` as a **value**, so the package is a
+runtime requirement. It checks out — npm resolves the peer into the lockfile, CI's `bun install`
+does too, and OpenCode installs the SDK into its own tree, so the host genuinely provides it and this
+avoids a second mismatched copy. Correct, but it was packaging scope riding under a label a reviewer
+would skim past.
+
+### Tests
+
+vitest **162 → 164**, all three new checks mutation-tested (3/3 caught by their own check). The only
+line of `engram.py` this release changes is `ENGRAM_VERSION`, so no engine behaviour moves —
+`selftest` stays at **302/302** and the fuzz gate was re-run against it anyway (0 crashes / 600
+states), because *"nothing changed"* is a claim and the fuzzer is a measurement.
+
+**§4.8 numbers audit: nothing to audit.** This release adds no number, no rate, and no count to any
+surface. **§5.5 and §5.7 are not triggered** — `skills/`, `agents/`, `codex/` and `hooks/` are
+byte-identical to v1.10.0, so no shared prose reaches the other five platforms. **§5.6, the user
+session, was not run**, for the same reason as v1.10.0: it needs a human learning something across
+real days. Nothing here changes what a learner sees; the whole diff is the OpenCode install path.
+A §5 live test drove a real 1.9.1-shaped install through the upgrade — user files kept, Engram's
+legacy copies swept, an unrelated `.opencode/agent/` untouched, the exclude still on `.engram-*`,
+and a second run a true no-op.
+
 ## 1.10.0 — 2026-07-28 · The answerable rubric
 
 [Issue #13](https://github.com/nagisanzenin/engram/issues/13): *"the rubric expects a part that no
