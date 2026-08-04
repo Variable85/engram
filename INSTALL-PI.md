@@ -2,7 +2,7 @@
 
 Engram is an **omni-repo**: one codebase that runs on Claude Code, OpenAI Codex, OpenCode, Hermes Agent, Google Antigravity, OpenClaw — and [Pi](https://pi.dev), Earendil's minimal, extensible coding agent. The core is the same everywhere: `skills/` (Agent Skills `SKILL.md`) plus the dependency-free `scripts/engram.py`. This file covers the Pi-specific glue.
 
-> Verified against **pi 0.83.0** (current) and **pi 0.74.2** (the `legacy-node20` line) on Linux — 19/19 harness checks on both. What was and wasn't proven is itemised in [honest status](#honest-status-of-the-pi-glue) — including the two things that need a live model and therefore aren't ticked.
+> Verified against **pi 0.83.0** (current) and **pi 0.74.2** (the `legacy-node20` line) on Linux — 20/20 harness checks on both. What was and wasn't proven is itemised in [honest status](#honest-status-of-the-pi-glue) — including the two things that need a live model and therefore aren't ticked.
 
 Pi is the friendliest port so far. It reads the Agent Skills standard natively, its package manager understands a plain git repo, and its extension API has exactly the two hooks the nudge needs. There is no self-extract, no bundle-format trap, no manifest precedence puzzle — the whole port is one manifest key, one extension file, and three prompt templates.
 
@@ -50,7 +50,7 @@ A local clone works too — `pi install /path/to/engram` adds the path without c
 Engram's ambient re-anchor — "[engram] 7 reviews due · ~4 min" — is `pi/engram.ts`, auto-loaded from the package manifest:
 
 - On **session start** (launch, `/new`, `--resume`) it runs `engram.py session-start`. If nothing is due, total silence.
-- If reviews are due, you see one TUI notice immediately (the nudge's first line), and the full text is injected as a visible custom message alongside your **first prompt**, so the model knows what you know and can offer to `/review` (Constitution art. 8: ambient, never nagging — at most one nudge per session, and any failure degrades to silence, never repetition).
+- If reviews are due, you see one TUI notice immediately (the nudge's first line), and the full text is injected as a visible custom message alongside your **first prompt** (or the next one, if the engine was slow to answer — the probe never blocks startup), so the model knows what you know and can offer to `/review` (Constitution art. 8: ambient, never nagging — at most one nudge per session, and any failure degrades to silence, never repetition).
 - It also exports `ENGRAM_ROOT` into Pi's process environment, which is how the skills' engine-resolution block finds `scripts/engram.py` from any bash call, wherever the package landed. **If your shell already exports `ENGRAM_ROOT`** (the dev-override convention on every platform), the extension respects it and the skills will use *that* checkout's engine — while the nudge always runs the installed package's own copy. Two checkouts, one store, is a versions-split you chose; unset the variable if you didn't mean to choose it.
 - In non-interactive runs (`-p`, `--mode json`) and in spawned children (`ENGRAM_CHILD=1`) the extension is deliberately inert — see the next section for why that matters.
 
@@ -85,13 +85,13 @@ pi                                  # then type /  — learn, review, coach in t
 
 ## Honest status of the Pi glue
 
-**Verified on pi 0.83.0 and pi 0.74.2** (Linux; 19/19 harness checks on each). The method: a mock OpenAI-compatible provider (`models.json` + a local server), so every payload pi was about to send a model could be captured and inspected, plus RPC mode for the interactive-equivalent paths. Every claim below is either one of the 19 checks or is labeled as a separate observation.
+**Verified on pi 0.83.0 and pi 0.74.2** (Linux; 20/20 harness checks on each). The method: a mock OpenAI-compatible provider (`models.json` + a local server), so every payload pi was about to send a model could be captured and inspected, plus RPC mode for the interactive-equivalent paths. Every claim below is either one of the 20 checks or is labeled as a separate observation.
 
 *Packaging* — `pi install` of this repo; manifest-driven discovery of exactly three skills (`learn`, `review`, `coach` — `_shared/` correctly ignored), the extension, and the three prompt templates. (`engram.py selftest` — 302/302, unchanged by this release — is run alongside the harness, not one of its checks.)
 
 *Skills* — all three present in the captured system prompt in Agent Skills XML form (`<available_skills>` asserted), with correct absolute paths into the installed package.
 
-*Nudge* — on a seeded store, the extension ran `session-start`, emitted the RPC notify request (asserted), and the captured first-prompt payload contained the injected `engram-nudge` message as a **user-role** message (asserted — that is how pi converts custom messages for the LLM); on an empty store, no nudge text anywhere in the payload. Separately — a one-off manual observation, not a harness check — a run against a real store reproduced the production nudge text with live due counts. `ENGRAM_ROOT` was observed propagating through pi's **actual bash execution path** (driven directly via RPC's `bash` command, no model in the loop).
+*Nudge* — on a seeded store, the extension ran `session-start`, emitted the RPC notify request (asserted), and the captured first-prompt payload contained the injected `engram-nudge` message as a **user-role** message (asserted — that is how pi converts custom messages for the LLM); on an empty store, no notify and no nudge text anywhere in the payload — asserted **over RPC with the UI live**, the one mode where the nudge machinery actually runs (a print-mode-only version of this check would be vacuous; the extension is inert there regardless of the store). Separately — a one-off manual observation, not a harness check — a run against a real store reproduced the production nudge text with live due counts. `ENGRAM_ROOT` was observed propagating through pi's **actual bash execution path** (driven directly via RPC's `bash` command, no model in the loop).
 
 *Templates* — `/learn`, `/review`, `/coach` each expanded to the pointing-prompt with arguments in place, in print mode's initial prompt.
 

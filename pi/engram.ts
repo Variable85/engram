@@ -83,6 +83,7 @@ export default function engramExtension(pi: PiLike) {
 	}
 
 	let pending: string | null = null;
+	let probeGen = 0;
 
 	// Deliberately NOT async and nothing awaited: pi awaits session_start handlers
 	// before rendering the TUI and before completing /new and /resume, so an awaited
@@ -98,9 +99,16 @@ export default function engramExtension(pi: PiLike) {
 			// instance. Re-probing keeps it one-nudge-per-runtime by construction.
 			if (ev.reason !== "startup" && ev.reason !== "new" && ev.reason !== "resume" && ev.reason !== "reload")
 				return;
+			// A nudge never crosses a session boundary, and a superseded probe never
+			// lands. (Defensive: pi already re-instantiates extensions per session, so
+			// both are unreachable today — but the invariant should hold locally, not
+			// lean on the host's lifecycle promise.)
+			pending = null;
+			const gen = ++probeGen;
 			void pi
 				.exec("python3", [engine!, "session-start"], { timeout: 15000 })
 				.then((res) => {
+					if (gen !== probeGen) return; // a newer session start owns `pending` now
 					// A timed-out/signal-killed child resolves code 0 with killed=true —
 					// and possibly a truncated stdout fragment. Silence, never a torn nudge.
 					const out = res.code === 0 && !res.killed ? res.stdout.trim() : "";
@@ -113,7 +121,7 @@ export default function engramExtension(pi: PiLike) {
 					}
 				})
 				.catch(() => {
-					pending = null; // silence over repetition — never surface a broken nudge
+					if (gen === probeGen) pending = null; // silence over repetition
 				});
 		} catch {
 			pending = null;

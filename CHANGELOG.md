@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.11.1 — 2026-08-04 · What the post-release review caught
+
+§7.5 ran on schedule against shipped main and found the exact bug class it exists for, in the
+exact place nobody had looked: **v1.11.0's CHANGELOG edit swallowed the `## 1.10.1` heading**,
+so 1.10.1's entire entry published *under the 1.11.0 header* — including "this release adds no
+number, no rate, and no count to any surface" (contradicted by v1.11.0's own numbers audit),
+"§5.5 and §5.7 are not triggered … byte-identical … no shared prose reaches the other five
+platforms" (v1.11.0 changed shared prose on purpose, and at seven platforms the count is six),
+and a second, contradictory account of why §5.6 didn't run. The generated release notes
+republished all of it as if it described the Pi release. Every absorbed claim was false of
+v1.11.0, and every one of them reassured. The header is restored and the v1.11.0 GitHub release
+notes are edited down to the entry that was true. A one-line lesson for the protocol: **the
+release-notes extraction trusts heading boundaries, so a release edit that eats a heading
+publishes someone else's gate claims as yours.**
+
+Also from the same review, in honesty's favor:
+
+- The harness's "no nudge on an empty store" check ran in **print mode — where the extension is
+  inert regardless of the store** — a vacuous check sitting under a paragraph that promises
+  instrument-backed claims. There is now an empty-store scenario over RPC with the UI live,
+  asserting no notify request and no nudge text in the payload (checks **19 → 20**, re-earned
+  on pi 0.83.0 and 0.74.2).
+- "Discovery of exactly three skills" is now the assertion, not a paraphrase — the skills check
+  counts `SKILL.md` occurrences and demands exactly three.
+- `pi/engram.ts` clears `pending` at every session-start and stamps probes with a generation
+  token. The stale-nudge scenario the reviewer proposed was **not reachable** — pi
+  re-instantiates extensions per session, verified against its session-replacement lifecycle —
+  but the invariant now holds locally instead of leaning on that lifecycle promise.
+- INSTALL-PI.md's "injected alongside your first prompt" gained its honest worst case ("or the
+  next one, if the engine is slow"), and the Node "(≥ 20.6)" floor is now sourced in the
+  numbers-audit postscript instead of being the one figure with no evidence trail.
+
+Engine untouched; selftest 302/302; fuzz 0/600 re-run after the last commit.
+
 ## 1.11.0 — 2026-08-04 · The seventh platform (Pi)
 
 An outside request ([#16](https://github.com/nagisanzenin/engram/issues/16), thanks
@@ -104,6 +138,8 @@ transport under such a session (skills offered, templates expanding, nudge arriv
 child clean) is exactly what the harness proved byte-level. A complete live `/learn` on pi and a
 real-model assessor round-trip remain unverified and are named as such in INSTALL-PI.md's honest
 status. The tutoring and retention loops themselves are untouched by this release.
+
+## 1.10.1 — 2026-07-29 · The plugin directory that was pretending to be two things
 
 A community PR ([#14](https://github.com/nagisanzenin/engram/pull/14), thanks
 [@luanweslley77](https://github.com/luanweslley77)) — the first outside contribution to the OpenCode
