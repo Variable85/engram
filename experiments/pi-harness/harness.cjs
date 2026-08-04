@@ -132,8 +132,9 @@ async function main() {
     const s1 = reqs[0] ? reqText(reqs[0]) : "";
     const sys = reqs[0] ? msgToText((reqs[0].body.messages || [])[0] || {}) : "";
     check(
-      "S1 skills in system prompt (learn/review/coach)",
-      ["learn", "review", "coach"].every((s) => sys.includes("skills/" + s + "/SKILL.md")),
+      "S1 skills in system prompt (exactly the three)",
+      ["learn", "review", "coach"].every((s) => sys.includes("skills/" + s + "/SKILL.md")) &&
+        (sys.match(/\/SKILL\.md/g) || []).length === 3,
     );
     check("S1 skills presented in Agent Skills XML form", sys.includes("<available_skills>"));
     check("S1 skill paths point into the engram repo", sys.includes(ENGRAM + "/skills/"));
@@ -232,6 +233,37 @@ async function main() {
     const notifySeen = rpcLines.some((l) => l.includes("notify") && l.includes("[engram]"));
     check("S2 RPC notify request emitted (the TUI-notice half)", notifySeen);
     rpc.kill();
+
+    // ---- S2b: RPC with EMPTY store — extension live (hasUI true), must stay silent.
+    // The print-mode empty-store check (S1) cannot prove this: in -p the extension
+    // is inert for an unrelated reason. This is the store-driven silence, asserted
+    // in the one mode where the nudge machinery actually runs.
+    before = captureLines().length;
+    const rpc2 = spawn("pi", ["--mode", "rpc", ...piArgs], {
+      cwd: PROJ,
+      env: { ...process.env, ENGRAM_HOME: STORE_EMPTY },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const rpc2Lines = [];
+    let rpc2Buf = "";
+    rpc2.stdout.on("data", (d) => {
+      rpc2Buf += d;
+      let i;
+      while ((i = rpc2Buf.indexOf("\n")) >= 0) {
+        const line = rpc2Buf.slice(0, i);
+        rpc2Buf = rpc2Buf.slice(i + 1);
+        if (line.trim()) rpc2Lines.push(line);
+      }
+    });
+    await new Promise((res) => setTimeout(res, 2500)); // extension load + probe resolves
+    rpc2.stdin.write(JSON.stringify({ id: "p1", type: "prompt", message: "hello from rpc" }) + "\n");
+    await waitFor(() => captureLines().length > before, 20000);
+    await new Promise((res) => setTimeout(res, 500));
+    reqs = captureLines().slice(before);
+    const s2b = reqs.map(reqText).join("\n=====\n");
+    const notify2 = rpc2Lines.some((l) => l.includes("notify") && l.includes("[engram]"));
+    check("S2b empty store over live RPC UI: no notify, no nudge in payload", !notify2 && !s2b.includes("[engram]"));
+    rpc2.kill();
 
     // ---- S5: child shape — inert extension, no skills, no context -------
     before = captureLines().length;

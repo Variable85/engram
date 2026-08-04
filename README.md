@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.11.0-6D4AA8.svg" alt="Version 1.11.0">
+  <img src="https://img.shields.io/badge/version-1.11.1-6D4AA8.svg" alt="Version 1.11.1">
   <a href="https://www.npmjs.com/package/opencode-engram-learning"><img src="https://img.shields.io/npm/v/opencode-engram-learning?label=npm&color=6D4AA8" alt="npm package"></a>
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/selftest-302%2F302-3E7D5A.svg" alt="302/302 checks">
@@ -37,7 +37,7 @@ claude plugin install engram@engram
 <sub>OpenCode: `opencode.json` is read globally (`~/.config/opencode/opencode.json`) or per-project; pin to source instead of npm with `"plugin": ["git+https://github.com/nagisanzenin/engram.git"]`.</sub><br>
 <sub>Antigravity: The due-review session nudge isn't ported yet, and the `architect` and `smith` subagents are currently dropped by AG 1.1.4's strict installer. Everything else works the same.</sub><br>
 <sub>OpenClaw: the nudge needs `openclaw config set hooks.internal.enabled true` (OpenClaw ignores plugin hooks until internal hooks are switched on), and it fires on `/new` and `/reset` rather than every session. Engram's agents aren't registered — the skills spawn them through `sessions_spawn` with isolated context instead, which keeps the assessor blind. Details in [INSTALL-OPENCLAW.md](INSTALL-OPENCLAW.md).</sub><br>
-<sub>Pi: no subagent tool by design — the skills spawn the blind assessor as a fresh `pi -p` process instead (isolation by process boundary). The nudge is one TUI notice at session start plus one injected message on your first prompt. Details in [INSTALL-PI.md](INSTALL-PI.md).</sub>
+<sub>Pi: no subagent tool by design — the skills spawn the blind assessor as a fresh `pi -p` process instead (isolation by process boundary). The nudge is one TUI notice at session start plus one injected message on your first prompt (worst case the next one — the probe never blocks startup). Details in [INSTALL-PI.md](INSTALL-PI.md).</sub>
 
 Then, inside your coding assistant (command spelling per your platform's row above):
 
