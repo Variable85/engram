@@ -12,8 +12,8 @@ Read `skills/_shared/dialogue-grammar.md` (hard rules, confidence integrity, par
 # Resolve the engine. RUN THIS BLOCK VERBATIM — do not substitute a path you guessed.
 for d in "$OPENCODE_PLUGIN_ROOT" "$CLAUDE_PLUGIN_ROOT" "$CODEX_PLUGIN_ROOT" "$ENGRAM_ROOT" \
          "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/extensions/engram" \
-         "$HOME/.pi/agent/git/github.com/nagisanzenin/engram" \
          "$HOME/.gemini/config/plugins/engram" \
+         "$HOME/.pi/agent/git/github.com/nagisanzenin/engram" \
          "$PWD" "$(git rev-parse --show-toplevel 2>/dev/null)"; do
   [ -n "$d" ] && [ -f "$d/scripts/engram.py" ] && ENGRAM="$d/scripts/engram.py" && break
 done

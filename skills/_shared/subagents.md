@@ -47,8 +47,11 @@ that drifts is the one grading.
 ## The Pi shape
 
 Pi (pi.dev) has no subagent tool, but it has the one primitive isolation
-actually needs: **a fresh process is a fresh context.** Spawn the child through
-the bash tool as a non-interactive pi run:
+actually needs: **a fresh process is a fresh context.** (The shape generalizes:
+on any platform whose only primitive is a shell, the child is a fresh
+non-interactive run of *that platform's own* agent binary — substitute yours
+for `pi` below.) Spawn the child through the bash tool as a non-interactive
+pi run:
 
 ```bash
 ENGRAM_CHILD=1 pi --no-session --no-skills --no-context-files -p \
@@ -59,8 +62,9 @@ ENGRAM_CHILD=1 pi --no-session --no-skills --no-context-files -p \
 ```
 
 Resolve `<ENGRAM_ROOT>` as the directory holding `scripts/engram.py` — on Pi
-that is the `$ENGRAM_ROOT` its extension exports (the dirname of the `$ENGRAM`
-your skill already resolved). Why each flag is load-bearing:
+that is the `$ENGRAM_ROOT` its extension exports (equivalently: `$ENGRAM` as
+your skill resolved it, with the trailing `/scripts/engram.py` removed). Why
+each flag is load-bearing:
 
 - `ENGRAM_CHILD=1` — makes Engram's own extension inert in the child, so the
   session-start nudge cannot leak into a grader's context. (`-p` alone already
@@ -98,11 +102,15 @@ task text. The child uses the learner's configured default pi model; pass
 - **No dialogue in the task text.** Not the lesson, not your read on how the
   session went, not "they seemed to get it." The assessor sees claims, rubrics,
   probes, productions, and pre-feedback confidence — that list is exhaustive.
-- **If `sessions_spawn` is unavailable, stop and say so.** It sits behind tool
-  policy: the `coding` and `full` profiles include it, `messaging` and `minimal`
-  do not. Without it there is no blind grader, and Engram does not have a
-  degraded mode where the tutor grades its own learner. Tell the user to set
+- **If your platform's spawn mechanism is unavailable, stop and say so.** This
+  bullet is for the construct-it-yourself platforms above — where "spawn X" is
+  literal (a registered subagent/Task tool), just use it; this is not a licence
+  to halt because some *other* platform's tool is absent. On OpenClaw,
+  `sessions_spawn` sits behind tool policy: the `coding` and `full` profiles
+  include it, `messaging` and `minimal` do not — tell the user to set
   `tools.profile: "coding"` or add `tools.alsoAllow: ["sessions_spawn",
-  "sessions_yield"]`, and do not issue receipts until they have. The same rule
-  binds on Pi: if the `pi -p` child cannot be spawned from the bash tool, stop
-  and say so — do not grade inline.
+  "sessions_yield"]`, and do not issue receipts until they have. On Pi, the
+  same rule binds: if the `pi -p` child cannot be spawned from the bash tool,
+  stop and say so — do not grade inline. Either way, without the spawn there
+  is no blind grader, and Engram has no degraded mode where the tutor grades
+  its own learner.

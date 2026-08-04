@@ -46,7 +46,11 @@
     "gold",
     "experiments",
     ".claude-plugin",
-    "pi"
+    "pi",
+    "INSTALL-PI.md",
+    "INSTALL-CODEX.md",
+    "INSTALL-HERMES.md",
+    "INSTALL-OPENCLAW.md"
   ],
   "repository": {
     "type": "git",

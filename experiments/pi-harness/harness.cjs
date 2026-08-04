@@ -135,11 +135,12 @@ async function main() {
       "S1 skills in system prompt (learn/review/coach)",
       ["learn", "review", "coach"].every((s) => sys.includes("skills/" + s + "/SKILL.md")),
     );
+    check("S1 skills presented in Agent Skills XML form", sys.includes("<available_skills>"));
     check("S1 skill paths point into the engram repo", sys.includes(ENGRAM + "/skills/"));
     check("S1 _shared not offered as a skill", !sys.includes("_shared/SKILL.md"));
     check("S1 no nudge on empty store", !s1.includes("[engram]"));
     const s1Canary = s1.includes(CANARY);
-    console.log("  (S1 context-file canary present: " + s1Canary + ")");
+    check("S1 context-file canary present (proves S5's absence is the flag, not luck)", s1Canary);
 
     // ---- S3: prompt template expansion ----------------------------------
     before = captureLines().length;
@@ -156,10 +157,10 @@ async function main() {
     const s3b = reqs[0] ? reqText(reqs[0]) : "";
     check("S3b /review template expanded", s3b.includes("Load Engram's review loop") && s3b.includes("quick"));
     before = captureLines().length;
-    r = runPi(["-p", ...piArgs, "/coach"], { ENGRAM_HOME: STORE_EMPTY });
+    r = runPi(["-p", ...piArgs, "/coach dashboard"], { ENGRAM_HOME: STORE_EMPTY });
     reqs = captureLines().slice(before);
     const s3c = reqs[0] ? reqText(reqs[0]) : "";
-    check("S3c /coach template expanded", s3c.includes("Load Engram's coach"));
+    check("S3c /coach template expanded with args", s3c.includes("Load Engram's coach") && s3c.includes("dashboard"));
 
     // ---- S2+S4: RPC mode — nudge injection + bash env propagation -------
     before = captureLines().length;
@@ -218,12 +219,18 @@ async function main() {
     await new Promise((res) => setTimeout(res, 500));
     reqs = captureLines().slice(before);
     const s2 = reqs.map(reqText).join("\n=====\n");
-    check(
-      "S2 nudge injected as message on first RPC prompt (seeded store)",
-      s2.includes("[engram] 1 production awaiting assessor grading"),
+    const nudgeAsUser = reqs.some((req) =>
+      (req.body.messages || []).some(
+        (m) =>
+          m.role === "user" &&
+          (typeof m.content === "string" ? m.content : (m.content || []).map((c) => c.text || "").join("")).includes(
+            "[engram] 1 production awaiting assessor grading",
+          ),
+      ),
     );
+    check("S2 nudge injected as a user-role message on first RPC prompt (seeded store)", nudgeAsUser, s2.includes("[engram]") ? "" : "nudge text absent entirely");
     const notifySeen = rpcLines.some((l) => l.includes("notify") && l.includes("[engram]"));
-    console.log("  (S2 RPC notify request observed: " + notifySeen + ")");
+    check("S2 RPC notify request emitted (the TUI-notice half)", notifySeen);
     rpc.kill();
 
     // ---- S5: child shape — inert extension, no skills, no context -------
@@ -238,10 +245,7 @@ async function main() {
     check("S5 child run exits 0 with mock reply", r.status === 0 && r.stdout.includes("MOCK-OK"), "status=" + r.status);
     check("S5 no skills offered to the child", !s5sys.includes("SKILL.md"));
     check("S5 no nudge in child context (seeded store!)", !s5.includes("[engram]"));
-    check(
-      "S5 no project context files in child" + (s1Canary ? " (flag proven: canary WAS in S1)" : " (weak: canary absent in S1 too)"),
-      !s5.includes(CANARY),
-    );
+    check("S5 no project context files in child (the canary S1 proved present)", !s5.includes(CANARY));
 
     // dump payload summaries for the record
     fs.writeFileSync(

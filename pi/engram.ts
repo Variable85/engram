@@ -84,21 +84,39 @@ export default function engramExtension(pi: PiLike) {
 
 	let pending: string | null = null;
 
-	pi.on("session_start", async (ev, ctx) => {
+	// Deliberately NOT async and nothing awaited: pi awaits session_start handlers
+	// before rendering the TUI and before completing /new and /resume, so an awaited
+	// exec here would freeze startup for up to the full timeout when the engine is
+	// slow (cold NFS home, macOS python3 stub). Fire the probe and let the result
+	// land whenever it lands — before_agent_start tolerates late or absent `pending`
+	// (worst case the nudge rides the second prompt instead of the first).
+	pi.on("session_start", (ev, ctx) => {
 		try {
 			if (!usable || !ctx.hasUI || process.env.ENGRAM_CHILD) return;
-			if (ev.reason !== "startup" && ev.reason !== "new" && ev.reason !== "resume") return;
-			const res = await pi.exec("python3", [engine!, "session-start"], { timeout: 15000 });
-			const out = res.code === 0 ? res.stdout.trim() : "";
-			if (!out) return; // nothing due — total silence
-			pending = out;
-			try {
-				ctx.ui.notify(out.split("\n")[0].slice(0, 120), "info");
-			} catch {
-				/* notice is best-effort; the injected message below still lands */
-			}
+			// reload included: pi re-instantiates the extension on /reload, so an
+			// announced-but-unconsumed nudge would otherwise vanish with the old
+			// instance. Re-probing keeps it one-nudge-per-runtime by construction.
+			if (ev.reason !== "startup" && ev.reason !== "new" && ev.reason !== "resume" && ev.reason !== "reload")
+				return;
+			void pi
+				.exec("python3", [engine!, "session-start"], { timeout: 15000 })
+				.then((res) => {
+					// A timed-out/signal-killed child resolves code 0 with killed=true —
+					// and possibly a truncated stdout fragment. Silence, never a torn nudge.
+					const out = res.code === 0 && !res.killed ? res.stdout.trim() : "";
+					if (!out) return; // nothing due — total silence
+					pending = out;
+					try {
+						ctx.ui.notify(out.split("\n")[0].slice(0, 120), "info");
+					} catch {
+						/* notice is best-effort; the injected message below still lands */
+					}
+				})
+				.catch(() => {
+					pending = null; // silence over repetition — never surface a broken nudge
+				});
 		} catch {
-			pending = null; // silence over repetition — never surface a broken nudge
+			pending = null;
 		}
 	});
 
