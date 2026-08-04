@@ -25,10 +25,16 @@
     "plugin",
     "learning",
     "fsrs",
-    "spaced-repetition"
+    "spaced-repetition",
+    "pi-package"
   ],
   "engines": {
     "opencode": ">=1.0.0"
+  },
+  "pi": {
+    "extensions": ["./pi/engram.ts"],
+    "skills": ["./skills"],
+    "prompts": ["./pi/prompts"]
   },
   "files": [
     ".opencode-plugin",
@@ -39,7 +45,8 @@
     "docs",
     "gold",
     "experiments",
-    ".claude-plugin"
+    ".claude-plugin",
+    "pi"
   ],
   "repository": {
     "type": "git",
