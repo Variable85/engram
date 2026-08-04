@@ -1,6 +1,73 @@
 # Changelog
 
-## 1.10.1 — 2026-07-29 · The plugin directory that was pretending to be two things
+## 1.11.0 — 2026-08-04 · The seventh platform (Pi)
+
+An outside request ([#16](https://github.com/nagisanzenin/engram/issues/16), thanks
+[@Shubxam](https://github.com/Shubxam)): support the [Pi coding agent](https://pi.dev). Shipped as
+the friendliest port so far — Pi reads the Agent Skills standard natively and its package manager
+understands a plain git repo, so the whole port is one manifest key, one extension file, and three
+prompt templates. **No engine changes**: `scripts/engram.py` is untouched, selftest stays 302/302,
+and `skills/` remains shared verbatim across all seven platforms.
+
+**Packaging.** `package.json` gains a `pi` manifest (`skills` / `extensions` / `prompts`) and the
+`pi-package` keyword; the `pi/` directory joins the npm file list. Install is one line —
+`pi install git:github.com/nagisanzenin/engram` — which clones to
+`~/.pi/agent/git/github.com/nagisanzenin/engram`, a path that joined the skills' engine-resolution
+loop (and `engram-artifact-smith`'s copy of it) alongside the OpenClaw and Antigravity entries.
+
+**Behavior (`pi/engram.ts`).** The extension does two ambient jobs. It exports `ENGRAM_ROOT` into
+pi's process environment, which pi's bash tool inherits — so the resolution loop finds the engine
+from any shell call without the skills changing. And it runs the nudge: on session start
+(launch / `/new` / resume) it calls `engram.py session-start`; if reviews are due you get one TUI
+notice immediately and the same text injected as a visible message alongside your first prompt; if
+nothing is due, total silence (Constitution art. 8). It is deliberately **inert** in print/JSON
+mode (`ctx.hasUI` false) and under `ENGRAM_CHILD=1` — see the next paragraph for why that is
+load-bearing. Its types are structural on purpose: importing pi's package would drag pi's
+dependency tree into what OpenCode users install.
+
+**The assessor on a platform with no subagents.** Pi ships none, by design. The separation of
+powers survives anyway, because a fresh process is a fresh context:
+`skills/_shared/subagents.md` gains "The Pi shape" — the blind grader is a
+`ENGRAM_CHILD=1 pi --no-session --no-skills --no-context-files -p` child, the receipt comes back
+through a file (models garnish stdout), and extensions stay **on** in the child because custom
+model providers arrive as extensions. The two inertness guards above are what keep the nudge out
+of a grader's context. The skills' spawn wording now states the capability branch — "no spawn
+tool at all" — rather than asking the reader to recognise its platform (§5.7's rule from v1.0.8).
+
+**Verification** — the instrument is committed at `experiments/pi-harness/`, not just its number:
+a mock OpenAI-compatible provider captures every payload pi is about to send a model, and 16
+checks assert against the captured bytes. Manifest discovery (exactly three skills; `_shared/`
+ignored), template expansion with arguments, nudge injected on a seeded store and byte-silent on
+an empty one, `ENGRAM_ROOT` through pi's real bash path (driven via RPC's `bash` command, no
+model in the loop), and child hygiene — no skills, no nudge, no project context files, with a
+canary `AGENTS.md` asserted *present* in the parent run and *absent* in the child, so the flag
+and not luck is what excluded it. **16/16 on pi 0.83.0 and on pi 0.74.2.**
+
+### The bug worth saying out loud
+
+The only real defect found was in this release's own first draft: **pi parses template
+frontmatter as strict YAML, and a template whose unquoted `description:` contains a second colon
+fails to load — silently.** `/learn` then reaches the model as literal text, and nothing anywhere
+says why. The first harness run failed exactly one check on two different pi versions, and the
+hunt went through pi's resource loader on both before the difference turned out to be a colon in
+"learn any topic properly: first-principles…". Every frontmatter value in `pi/prompts/` is now
+quoted, INSTALL-PI.md carries a maintainers note, and the harness would catch a regression as a
+template-expansion failure.
+
+### Version skew npm will not tell you about
+
+Current pi requires Node ≥ 22.19; on Node 20, npm silently serves **pi 0.74.2** via the
+`legacy-node20` dist-tag instead of saying so. Both lines pass the harness, and INSTALL-PI.md
+states the split.
+
+### The gates that did not run
+
+**§5.6, the user session, was not run on Pi** — it needs a human learning something real through
+a live model on that platform, and this release's environment had no pi provider credentials; the
+transport under such a session (skills offered, templates expanding, nudge arriving, assessor
+child clean) is exactly what the harness proved byte-level. A complete live `/learn` on pi and a
+real-model assessor round-trip remain unverified and are named as such in INSTALL-PI.md's honest
+status. The tutoring and retention loops themselves are untouched by this release.
 
 A community PR ([#14](https://github.com/nagisanzenin/engram/pull/14), thanks
 [@luanweslley77](https://github.com/luanweslley77)) — the first outside contribution to the OpenCode
