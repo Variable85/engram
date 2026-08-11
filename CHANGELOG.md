@@ -1,5 +1,173 @@
 # Changelog
 
+## 1.11.2 — 2026-08-11 · The engine stopped taking the grader's word for it
+
+An outside report ([#17](https://github.com/nagisanzenin/engram/issues/17), thanks
+[@tyteachestech](https://github.com/tyteachestech)), found in a real session and reported with a
+working patch and a mutation-checked test. It is a good bug: nothing crashed, no test went red,
+and the damage landed on a learner's grade.
+
+**`stash add` clipped productions at 800 characters before the blind assessor ever saw them.**
+`stash list` *is* the assessor's entire input, so `PRODUCTION_MAX` was never a storage bound — it
+was a bound on **what the grader is allowed to know**. 800 sits inside the range of an ordinary
+long free recall. A thorough answer arrived cut mid-sentence, two rubric criteria fell in the
+missing tail, the assessor correctly refused to credit what it could not see, and the item came
+back `partial`/`hard`. Fixing it took a manual appeal with the full text passed back out of band.
+
+**And the marker added in #2 so a clip could never be silent did not survive to the receipt**, for
+two independent reasons: `make_receipt` *recomputed* `production_truncated` rather than carrying
+it, and a stash clip arrives at **exactly** `PRODUCTION_MAX`, where `len(prod) > PRODUCTION_MAX`
+is `False` — so the receipt claimed a complete production; and the assessor's output schema had
+no such field, so a correctly-set flag died at the agent boundary anyway. The reporter's receipt
+read `production_truncated: None`. The clip was invisible everywhere except in the grade.
+
+### Engine
+
+- **`PRODUCTION_MAX` 800 → 2400.** Clears a thorough recall (~400 words) and stays cheap in
+  assessor prompt tokens. What remains is a runaway-paste guard, and the report's own reasoning
+  for keeping it low is the reason it is 2400 and not higher. The cap was never protecting
+  anything it was thought to protect: `export` builds its payload as a **whitelist by name** and
+  `production` has no code path into it (CONTRIBUTING-DATA.md's promise is structural, not this
+  constant's doing), and the stash is transient — drained per-`sid` on apply and cleared each
+  settle.
+- **The receipt now archives the production from the STASH, not from the grader's echo.**
+  `apply_item` mints the receipt *before* it drops the stash entry, so the text the blind
+  assessor was actually handed is still on disk; the engine reads its own record and falls back
+  to the item only when no entry matches (the sid-less `rate` path). Two things follow. The
+  truncation flag is **carried by code instead of by an instruction a model has to remember** —
+  it survives an assessor that omits the field, which the reporter's patch could not do because
+  its flag still travelled through the agent. And the permanent record of a graded production is
+  now **the learner's words** rather than a model's retyping of them, bounded at ≤600 chars by
+  the assessor's own spec — which is why the appeal in the report had no full text on disk to
+  re-judge against.
+- **The learner's confidence pick survives the grader — and this is the worse bug of the two.**
+  Found by §4.5's grep-for-siblings rule while fixing the above; it was not in the report, and it
+  is older than the bug that was. `confidence` is picked pre-feedback and recorded by the engine
+  at stash time, but the receipt took the assessor's *echo* of it. An assessor that simply
+  **omitted** one line of a strict schema wrote `confidence: null`, and `_calibration` drops
+  null-confidence rows from its population **without saying so**. The row most likely to vanish
+  is the high-confidence **lapse** — which the assessor's own spec calls "precisely the case most
+  valuable to catch" — and that row is a `(0.9, 0)` pair, the maximally-wrong prediction.
+
+  Measured on the rendered dashboard, identical input to both engines (16 reviews all at
+  confidence 90, five of them lapsed, grader omits confidence on the lapses):
+
+  ```
+  v1.11.1   Brier 0.010 · bias -0.100 → underconfident · n=11
+  v1.11.2   Brier 0.260 · bias +0.212 → overconfident  · n=16
+  ```
+
+  **The verdict was inverted, not merely understated.** A learner who confidently failed five
+  reviews was told they were *under*confident — the most flattering sentence this engine can
+  produce, and the opposite of the truth. Beside it the dashboard printed *"(only answers where
+  you actually stated a confidence count)"*; they had stated one on all sixteen. Bug class #7
+  wrapped around bug class #1, produced by bug class #5.
+
+  It is live, at a low rate: of 29 assessor-graded receipts in the author's own store, **one**
+  carries a null confidence, and it is a `lapsed`. Whether the learner declined there or the
+  grader dropped it is **unrecoverable** — which is the defect, not a footnote: the old design
+  gave those two facts the same representation. The engine now reads its own stash record, and
+  the mirror case is structural too — a **declined** pick (stashed null) stays null, so "never
+  invent a confidence" is no longer only an instruction. Receipts already written cannot be
+  repaired and are not backfilled; the stash entries behind them are gone.
+- The archived `probe` comes from the stash for the same reason. Nothing reads a receipt's
+  `probe` today, so this changes no number — it is consistency, not a fix, and is listed as such.
+
+### Agents
+
+- `agents/engram-assessor.md` and `codex/agents/engram-assessor.toml`: the `production` echo is
+  ≤2400 to match the engine ceiling, and `production_truncated` is passed through when the input
+  item carries it. Both are now belt to the engine's braces rather than the mechanism itself.
+
+### Gates
+
+Selftest **302 → 307**, every new check mutation-tested one-to-one against the specific line it
+guards. Three things worth writing down, because each is a gate catching the release that added it:
+
+- **§4.5's grep-for-siblings produced the confidence bug above.** It was not in the report, it is
+  older than the report's bug, and it is the more damaging of the two. The rule earned its place
+  again.
+- **Reading the stash inside `make_receipt` put a hand-editable state file on the WRITE path**,
+  where §4.7's read-path fuzzer structurally cannot see it. A stashed `production` of `42` is
+  valid JSON and pure corruption; it reached `len(prod)` and killed `receipt` **mid-batch** — on
+  an append-only log that is a tear, not a degraded read. Fixed at the gate (string or nothing),
+  which also closed the older half of the same hole: a non-string `production` in the *agent's*
+  own JSON had been able to do it since the receipt schema existed. `scripts/fuzz.py` now builds
+  a corrupt stash and fuzzes `stash list`/`stash count`, which had never been fuzzed at all —
+  they are read-only sub-actions of a mutating command, exactly the blind spot the `experiment
+  status` amendment was written about. **0 crashes / 600 states / 21,000 calls**, re-run after
+  the last commit.
+- **The first version of the corruption check was theatre**, and the mutation test said so:
+  reverting the item-side guard left it green, because its fixture only ever corrupted the stash
+  side. It now feeds corruption from both directions and fails to either mutation. That is the
+  sixth fake check this protocol has caught, and it was written *by the person who had just
+  finished writing about fake checks.*
+- **The confidence fix shipped subtly wrong for an hour.** The first version asked
+  `"confidence" in stashed` — which reads as equivalent to "did the engine record a pick?" and is
+  not. `stash add` does not require the field, so an entry can carry no confidence at all, and
+  that version fell back to the assessor's echo there: precisely the invention hole it was
+  written to close, surviving inside its own fix. A matched stash entry is now authoritative
+  present, null, **or absent**. Caught in the §4.6 self-review, not by any test — the test that
+  would have caught it did not exist until the review demanded it.
+
+The §2 version-bump grep **missed `INSTALL-PI.md`**, which carried the selftest count in two
+places — the "grep for the N+1th" rule catching the very step that lists where to grep. The live
+command is updated; the historical v1.11.0 figure is now pinned to its version so it cannot be
+read as a current claim.
+
+### What the dogfood measured (§5.5)
+
+The installed plugin was **1.2.2** — nine minors behind — so the graders were driven off the
+release tree by absolute path, per §5.5's second rule. Two blind spawns, no shared context, each
+handed a literal items file and nothing else. Same learner answer, same rubric, same probe; the
+only difference is the clip. The answer is a genuine explanation of the spacing effect whose
+third criterion is first satisfied at **character 931**:
+
+| what the grader was handed | grade | rating | stability | next due |
+|---|---|---|---|---|
+| the whole answer (1083 chars, v1.11.2) | `recalled` | `easy` | 13.82 | +14 days |
+| clipped at 800 (v1.11.1) | `partial` | `hard` | 1.40 | +1 day, back to `learning` |
+
+The clipped grader's own words: criterion 3 *"MISSED … the text ends mid-word ('is the me') and
+the why was never produced."* It graded correctly. It was simply not shown the sentence. **A
+learner who had explained the concept completely would have had that node knocked back into
+`learning` with a tenth of the stability and a review the next morning** — and the receipt saying
+so is append-only. That is the whole bug, priced.
+
+Both runs returned `sid` verbatim and `grader: "engram-assessor"` rather than a fabricated model
+id; the clipped run correctly emitted `production_truncated: true` from the flag its input
+carried, and the whole run correctly omitted it. The receipt archived the learner's production
+**byte-identical** to the stash and kept `confidence: 75`. Unprompted, both runs independently
+flagged `probe_gap: [1]` on the fixture's own probe — v1.10's curriculum check working on a card
+written for this test.
+
+### Which gates ran, and which did not
+
+Green: §4 selftest (307/307), §4.5 mutation (one-to-one, every new check), §4.7 fuzz (0/600,
+re-run after the last commit, now with stash coverage), §4.8 numbers audit
+(`docs/release-audits/v1.11.2-numbers-audit.md`), §5 live test including the read-only hash gate
+against the real store, §5.5 dogfood above. §5.7 is **not triggered** — no platform added or
+changed, `skills/` untouched — and the two assessor specs were checked in sync anyway.
+
+Two gates did **not** run in the form the protocol specifies, and neither is a formality:
+
+- **§4.6 `/code-review high`.** The multi-agent cloud review is user-triggered and billed; it
+  cannot be launched from inside a session. What ran instead was a hand adversarial pass over the
+  diff, which found the `"confidence" in stashed` near-miss above and the batch-performance
+  question (60-item settle: 0.40s, no regression). **That is not a substitute for an independent
+  reviewer**, and by this protocol's own accounting — 10 defects behind 79 green checks, 9 behind
+  110, 8 behind 155 — the expected number of remaining defects here is not zero.
+- **§5.6 the user session.** Requires a human learning something they do not know, and its
+  honest half ("the *feel* of returning after three days cannot be faked with `ENGRAM_TODAY`")
+  requires real days. Not run. This release does not touch the tutoring loop, the retention
+  protocol, or the ambient surface — but the gate exists precisely because that reasoning has
+  been wrong before.
+
+§7.5's post-release review is therefore carrying more weight than usual, and should be run
+against shipped `main` with the standing instruction: *find a number that is wrong in the
+direction that reassures the learner.* This release found one that had been shipping since
+confidence existed.
+
 ## 1.11.1 — 2026-08-04 · What the post-release review caught
 
 §7.5 ran on schedule against shipped main and found the exact bug class it exists for, in the

@@ -33,13 +33,21 @@ SCHEMA = 1
 # The one place the engine knows its own version. Read by `export`, so a shared receipt states
 # which engine produced it — a corpus of receipts from unknown engine versions is not a corpus.
 # Pinned against .claude-plugin/plugin.json by a selftest, so it cannot drift.
-ENGRAM_VERSION = "1.11.1"
+ENGRAM_VERSION = "1.11.2"
 RETENTION_DEFAULT = 0.90
 INTERVAL_MAX = 365
 RETENTION_MIN, RETENTION_MAX = 0.70, 0.97   # sane desired-retention bounds
 MULTIPLIER_MIN, MULTIPLIER_MAX = 0.5, 1.5   # matches refit clamp
 CAL_MIN_N = 10          # calibration verdict floor: below this, "insufficient-data"
-PRODUCTION_MAX = 800    # receipt production cap (chars)
+# Production ceiling (chars). `stash list` IS the blind assessor's entire input, so this is not a
+# storage bound — it is a bound on WHAT THE GRADER IS ALLOWED TO KNOW. At 800 it sat inside the
+# range of an ordinary long free recall: a real production arrived cut mid-sentence, two rubric
+# criteria fell in the missing tail, the assessor correctly could not verify what it could not
+# see, and the grade had to be corrected by a manual appeal (issue #17). 2400 clears a thorough
+# recall (~400 words) while keeping the assessor prompt cheap; past it the clip is a runaway-paste
+# guard, and when it fires it MUST stay marked — a grade computed from a partial answer is
+# precisely the flattering-direction wrong number this engine cannot afford to invent.
+PRODUCTION_MAX = 2400
 
 # FSRS-4.5 default parameters (open-spaced-repetition). w[0..3] are initial
 # stabilities for Again/Hard/Good/Easy; the rest shape difficulty and growth.
@@ -1563,17 +1571,79 @@ def clean_confidence(conf):
         return None
     return int(round(clamp(v, 0.0, 100.0)))
 
+def _stashed_item(sid):
+    """The engine's own record of a settle, recovered from the stash by transaction id.
+
+    `apply_item` mints the receipt BEFORE it drops the stash entry, so everything the blind
+    assessor was actually handed is still on disk at this point. Returns the entry, or None —
+    which is the honest answer on the sid-less `rate` path and on a stash cleared out of order.
+    """
+    if not (isinstance(sid, str) and sid):
+        return None
+    for e in read_jsonl(p(STASH_FILE)):
+        if e.get("sid") == sid:
+            return e
+    return None
+
 def make_receipt(item, extra, kind):
-    prod = item.get("production") or ""
-    truncated = len(prod) > PRODUCTION_MAX
+    # STRING OR NOTHING, at the gate. `production` arrives from an agent's JSON and — since
+    # v1.11.2 — from a hand-editable stash file, and a state file can be valid JSON with the
+    # wrong types (§4.7's whole premise). A non-string here reached `len(prod)` and took the
+    # settle down with a TypeError: not a degraded read, a torn write on an append-only log.
+    prod = item.get("production")
+    prod = prod if isinstance(prod, str) else ""
+    # ⚠ THE ARCHIVE COMES FROM THE STASH, NOT FROM THE GRADER'S ECHO (v1.11.2, issue #17).
+    #
+    # The receipt's `production` used to be whatever the assessor typed back, bounded by a
+    # "trimmed <= 600 chars" line in its own agent spec. Two things followed, and both were real:
+    # the permanent record of a graded production was a MODEL'S TRANSCRIPTION of the learner's
+    # words rather than the words, so an appeal had no full text on disk to re-judge against;
+    # and `production_truncated` was RECOMPUTED here, so an upstream clip — which lands at
+    # exactly PRODUCTION_MAX — read as `len(prod) > PRODUCTION_MAX == False` and the receipt
+    # claimed a complete production. That is how the issue-#17 clip reached the archive unmarked.
+    #
+    # The stash entry IS what the blind assessor was handed, and it is still on disk here. So the
+    # engine takes the text and the flag from ITS OWN record and only falls back to the item when
+    # there is no matching entry. A truncation flag is now CARRIED, never recomputed away — by
+    # code, not by an instruction an agent has to remember. Same discipline as `sid`: the fields
+    # the engine's integrity rests on are not routed through a model.
+    #
+    # ⚠ AND THE SIBLING, which is the worse half (found by §4.5's grep-for-siblings rule).
+    # `confidence` is on the same footing: the learner PICKS it, pre-feedback, and the engine
+    # records it at stash time — but the receipt took the assessor's echo of it. An assessor that
+    # simply omitted the field (it is one line in a strict schema) wrote `confidence: null`, and
+    # `_calibration` drops a null-confidence row from its population WITHOUT SAYING SO. The row
+    # most likely to go missing is the high-confidence LAPSE — which the assessor's own spec calls
+    # "precisely the case most valuable to catch" — and deleting exactly that row makes Brier and
+    # `overconfident_lapses` look BETTER. A flattering number, produced by silence. Both classes
+    # this repo cannot ship, in one field.
+    #
+    # So a matched stash entry is authoritative for what the LEARNER produced and picked, and for
+    # the probe actually served. It is NOT authoritative for the grade — `grade`, `rating`,
+    # `misconceptions`, `rubric_notes`, `error_class` and `probe_gap` are the assessor's judgment
+    # and must keep coming from the assessor. The engine owns the facts; the grader owns the verdict.
+    stashed = _stashed_item(item.get("sid")) or {}
+    if isinstance(stashed.get("production"), str) and stashed["production"]:
+        prod = stashed["production"]
+    truncated = (len(prod) > PRODUCTION_MAX or bool(stashed.get("production_truncated"))
+                 or bool(item.get("production_truncated")))
+    # A MATCHED STASH ENTRY IS AUTHORITATIVE FOR CONFIDENCE — present, null, or absent alike.
+    # Not `"confidence" in stashed`, which looks equivalent and is not: `stash add` does not
+    # require the field, so an entry can legitimately carry no confidence at all, and falling
+    # back to the item there re-opens the exact hole this closes. The assessor sees nothing but
+    # the stash, so a confidence it supplies for an entry that has none is invented BY
+    # DEFINITION — "never invent a confidence" stops being an instruction and becomes arithmetic.
+    # A stashed null (learner declined) and a stashed 0 (a real pick, and falsy) both survive.
+    conf_src = stashed if stashed else item
+    probe_src = stashed if stashed.get("probe") else item
     receipt = {
         "id": gen_id("r"),
         "ts": today().isoformat(),
         "topic": item["topic"], "node": item["node"],
         "kind": kind,
-        "probe": item.get("probe"),
+        "probe": probe_src.get("probe"),
         "production": (prod[:PRODUCTION_MAX] or None),
-        "confidence": clean_confidence(item.get("confidence")),
+        "confidence": clean_confidence(conf_src.get("confidence")),
         "grade": item.get("grade"),
         "rating": item["rating"],
         "misconceptions": item.get("misconceptions", []),
@@ -2049,7 +2119,11 @@ def cmd_stash(args):
             # `receipt --file` idempotent and closes the crash-retry window (issue #3).
             item.setdefault("sid", gen_id("s"))
             prod = item.get("production") or ""
-            if len(prod) > PRODUCTION_MAX:   # bound stash growth (matches receipt cap)
+            # RUNAWAY-PASTE GUARD ONLY — it is not a storage bound. Whatever survives this line
+            # is the entire input the blind assessor gets to grade, so it must never fire on a
+            # production a learner actually wrote (issue #17: at 800 it did, mid-sentence, and
+            # the two rubric criteria in the missing tail were graded as unmet).
+            if len(prod) > PRODUCTION_MAX:
                 item["production"] = prod[:PRODUCTION_MAX]
                 item["production_truncated"] = True
             append_jsonl(path, item)
@@ -9991,6 +10065,142 @@ def cmd_selftest(_args):
                             "production": "x" * (PRODUCTION_MAX + 50)}, {}, "encode")
     check("long production is truncated with a marker",
           len(r_trunc["production"]) == PRODUCTION_MAX and r_trunc.get("production_truncated") is True)
+
+    # -- a long production reaches the blind ASSESSOR intact (issue #17) --
+    # `stash list` is the assessor's entire input, so the stash ceiling is a bound on what the
+    # GRADER IS ALLOWED TO KNOW. At 800 a real free recall arrived cut mid-sentence, the two
+    # rubric criteria in the missing tail could not be verified, and the grade had to be undone
+    # by a manual appeal. What remains is a runaway-paste guard: it must not fire on an answer a
+    # learner actually wrote, and when it DOES fire the mark has to survive into the receipt.
+    def _long_production_reaches_assessor(h):
+        _add_ab()
+        prod = "the learner's answer, at length. " * 40 + "…and the criterion is met HERE."
+        _capture(cmd_stash, _ns(action="add", json=json.dumps(
+            {"topic": "t", "node": "a", "probe": "pa", "production": prod})))
+        listed = _capture_json(cmd_stash, _ns(action="list"))[0]
+        intact = (len(prod) > 800 and listed["production"] == prod
+                  and "production_truncated" not in listed)
+        # the guard still fires — and still tells the truth — on a genuinely runaway paste
+        _capture(cmd_stash, _ns(action="clear"))
+        _capture(cmd_stash, _ns(action="add", json=json.dumps(
+            {"topic": "t", "node": "a", "probe": "pa",
+             "production": "x" * (PRODUCTION_MAX + 50)})))
+        clipped = _capture_json(cmd_stash, _ns(action="list"))[0]
+        return intact and (len(clipped["production"]) == PRODUCTION_MAX
+                           and clipped.get("production_truncated") is True)
+    check("a >800-char production round-trips stash -> assessor input intact",
+          fresh(_long_production_reaches_assessor))
+
+    # -- the truncation mark survives an assessor that DROPS it (issue #17) --
+    # The fix's other half. `production_truncated` used to be recomputed in make_receipt, where
+    # an upstream clip lands at EXACTLY PRODUCTION_MAX and therefore reads as complete. Carrying
+    # the incoming flag is not enough on its own: the item make_receipt sees is the ASSESSOR's
+    # output, so the mark would then depend on a model remembering one optional field. It does
+    # not — the engine recovers it from its own stash entry, by sid, which is still on disk
+    # because apply_item mints the receipt before it drops the stash.
+    def _truncation_mark_survives_a_forgetful_assessor(h):
+        _add_ab()
+        _capture(cmd_stash, _ns(action="add", json=json.dumps(
+            {"topic": "t", "node": "a", "probe": "pa",
+             "production": "y" * (PRODUCTION_MAX + 600)})))
+        graded = dict(_capture_json(cmd_stash, _ns(action="list"))[0],
+                      rating="hard", grade="partial", kind="encode", source="assessor")
+        graded.pop("production_truncated")        # the ONE field a model has to remember
+        _capture(cmd_receipt, _ns(json=json.dumps([graded])))
+        r = _receipts_for("t")[-1]
+        return r.get("production_truncated") is True
+    check("a clip stays marked even when the assessor drops the flag",
+          fresh(_truncation_mark_survives_a_forgetful_assessor))
+
+    # -- the archive holds the LEARNER's words, not the grader's retyping (issue #17) --
+    # The receipt's production was whatever the assessor echoed back, under a "trimmed <= 600
+    # chars" line in its own spec — so the permanent record of a graded production was a model's
+    # transcription, and an appeal had no full text on disk to re-judge against. The stash entry
+    # is both the learner's text and exactly what the grader was handed; the engine archives that.
+    def _archive_is_the_learners_own_text(h):
+        _add_ab()
+        prod = "FULL LEARNER TEXT, in their own words. " * 15   # deliberately under ANY cap
+        _capture(cmd_stash, _ns(action="add", json=json.dumps(
+            {"topic": "t", "node": "a", "probe": "pa", "production": prod})))
+        graded = dict(_capture_json(cmd_stash, _ns(action="list"))[0],
+                      rating="hard", grade="partial", kind="encode", source="assessor")
+        graded["production"] = "the learner said roughly this"      # an echo that drifted
+        _capture(cmd_receipt, _ns(json=json.dumps([graded])))
+        r = _receipts_for("t")[-1]
+        return r["production"] == prod and r.get("production_truncated") is None
+    check("the receipt archives the learner's production, not the assessor's echo",
+          fresh(_archive_is_the_learners_own_text))
+
+    # -- the learner's CONFIDENCE PICK survives the grader (issue #17, sibling) --
+    # The nastier half of the same class, and it is bug class #1 wearing bug class #5's clothes:
+    # confidence is picked by the learner pre-feedback and recorded by the engine, but the receipt
+    # took the assessor's echo. Omit that one field — one line in a strict schema — and the receipt
+    # says `confidence: null`, and `_calibration` drops null rows from its population silently. The
+    # row that goes missing is a high-confidence LAPSE, so Brier and `overconfident_lapses` both
+    # improve. The engine now reads its own stash record, so a grader cannot delete the datum.
+    def _confidence_pick_survives_the_grader(h):
+        _add_ab()
+        _capture(cmd_stash, _ns(action="add", json=json.dumps(
+            {"topic": "t", "node": "a", "probe": "pa", "production": "an answer",
+             "confidence": 90})))
+        graded = dict(_capture_json(cmd_stash, _ns(action="list"))[0],
+                      rating="again", grade="lapsed", kind="encode", source="assessor")
+        graded.pop("confidence")                  # the assessor simply omits it
+        _capture(cmd_receipt, _ns(json=json.dumps([graded])))
+        kept = _receipts_for("t")[-1].get("confidence") == 90
+        # …and the mirror: a DECLINED pick (stashed null) must stay null, so an assessor cannot
+        # invent a confidence for a learner who refused to give one.
+        _capture(cmd_stash, _ns(action="add", json=json.dumps(
+            {"topic": "t", "node": "b", "probe": "pb", "production": "another",
+             "confidence": None})))
+        g2 = dict([e for e in _capture_json(cmd_stash, _ns(action="list"))
+                   if e["node"] == "b"][0],
+                  rating="good", grade="recalled", kind="encode", source="assessor")
+        g2["confidence"] = 85                     # invented out of nothing
+        _capture(cmd_receipt, _ns(json=json.dumps([g2])))
+        declined = _receipts_for("t")[-1].get("confidence") is None
+        # …and the third case, which `"confidence" in stashed` would have let through: the tutor
+        # stashed no confidence AT ALL. The assessor sees only the stash, so a number it supplies
+        # here is invented by definition and must not reach the receipt.
+        _capture(cmd_stash, _ns(action="add", json=json.dumps(
+            {"topic": "t", "node": "a", "probe": "pa", "production": "a third"})))
+        g3 = dict([e for e in _capture_json(cmd_stash, _ns(action="list"))
+                   if e.get("production") == "a third"][0],
+                  rating="good", grade="recalled", kind="encode", source="assessor",
+                  confidence=95)
+        _capture(cmd_receipt, _ns(json=json.dumps([g3])))
+        never_asked = _receipts_for("t")[-1].get("confidence") is None
+        return kept and declined and never_asked
+    check("the learner's confidence pick survives an assessor that drops or invents one",
+          fresh(_confidence_pick_survives_the_grader))
+
+    # -- a hand-corrupted stash degrades the settle, it does not tear it (issue #17) --
+    # Reading the stash inside make_receipt put a hand-editable state file on the WRITE path,
+    # where §4.7's read-path fuzzer cannot see it. A `production` of `42` is valid JSON and pure
+    # corruption; it reached `len(prod)` and killed `receipt` mid-batch — on an append-only log,
+    # that is a tear, not a degraded read. String or nothing, at the gate.
+    def _corrupt_stash_cannot_tear_a_settle(h):
+        _add_ab()
+        with open(p(STASH_FILE), "w") as f:
+            f.write('5\n"a string"\n[1,2]\n{"sid": 7}\n')
+            f.write(json.dumps({"sid": "s_x", "production": 42, "confidence": []}) + "\n")
+            f.write("not json at all\n")
+        # (a) corruption arriving from the STASH, alongside the learner's real answer
+        _capture(cmd_receipt, _ns(json=json.dumps([
+            {"topic": "t", "node": "a", "probe": "pa", "production": "an answer",
+             "sid": "s_x", "rating": "good", "grade": "recalled", "kind": "encode"}])))
+        r = _receipts_for("t")[-1]
+        from_stash = (r["production"] == "an answer" and r.get("confidence") is None
+                      and r.get("production_truncated") is None)
+        # (b) corruption arriving from the AGENT's own JSON, with no stash entry behind it —
+        # the older half of the same hole, reachable since the receipt schema existed.
+        _capture(cmd_receipt, _ns(json=json.dumps([
+            {"topic": "t", "node": "b", "probe": "pb", "production": {"oops": 1},
+             "rating": "good", "grade": "recalled", "kind": "encode"}])))
+        r2 = _receipts_for("t")[-1]
+        return from_stash and r2["node"] == "b" and r2["production"] is None
+    check("a type-corrupt production cannot tear a settle, from stash or agent",
+          fresh(_corrupt_stash_cannot_tear_a_settle))
 
     # -- due --limit 0 means zero, not "all" (N6) --
     def _limit_zero(h):
