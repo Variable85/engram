@@ -14,6 +14,27 @@ import { resolve } from "node:path"
 const SKILLS = ["learn", "review", "coach"] as const
 const root = resolve(__dirname, "..")
 
+/** Every file carrying a waterfall copy — DISCOVERED, not enumerated. The
+ *  v1.13.0 release hardcoded the three skills here and missed the fourth
+ *  copy in agents/engram-artifact-smith.md; §7.5 proved that copy strands a
+ *  dsh-only machine on the visuals path. Discovery keeps platform nine from
+ *  repeating this. */
+function waterfallFiles(): string[] {
+  const { execSync } = require("node:child_process")
+  const out = execSync('grep -rl \'for d in "$OPENCODE_PLUGIN_ROOT"\' skills agents', { cwd: root, encoding: "utf-8" })
+  const files = out.trim().split("\n").filter(Boolean)
+  expect(files.length).toBeGreaterThanOrEqual(4)
+  return files
+}
+
+function waterfallBlockAt(relPath: string): string {
+  const content = readFileSync(resolve(root, relPath), "utf-8")
+  const start = content.indexOf('for d in "$OPENCODE_PLUGIN_ROOT"')
+  const end = content.indexOf("; do", start)
+  expect(start, `${relPath}: candidate list missing`).toBeGreaterThan(-1)
+  return content.slice(start, end)
+}
+
 function waterfallBlock(skill: string): string {
   const content = readFileSync(resolve(root, "skills", skill, "SKILL.md"), "utf-8")
   const start = content.indexOf("# Resolve the engine. RUN THIS BLOCK VERBATIM")
@@ -41,8 +62,9 @@ describe("engine-resolution waterfall", () => {
     expect(coach).toBe(learn)
   })
 
-  it("carries every shipped platform's candidate", () => {
-    const block = candidateList("learn")
+  it("carries every shipped platform's candidate — in EVERY discovered copy", () => {
+    for (const file of waterfallFiles()) {
+    const block = waterfallBlockAt(file)
     for (const candidate of [
       '"$OPENCODE_PLUGIN_ROOT"',
       '"$CLAUDE_PLUGIN_ROOT"',
@@ -53,7 +75,8 @@ describe("engine-resolution waterfall", () => {
       '"$HOME/.pi/agent/git/github.com/nagisanzenin/engram"',
       '"$HOME/.agents/engram"',
     ]) {
-      expect(block, `missing candidate ${candidate}`).toContain(candidate)
+      expect(block, `${file}: missing candidate ${candidate}`).toContain(candidate)
+    }
     }
   })
 

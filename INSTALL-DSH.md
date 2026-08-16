@@ -8,9 +8,9 @@ instructions, an unmodified-Claude-Code hook bridge for the session nudge, and a
 tool for the blind assessor. No adapter code — the port is a clone, three symlinks, and one
 optional patch block.
 
-Verified against `@deepseek-ai/dsh` 0.1.0-rc.5 (npm, 2026-08-16), headless and web
-profiles — dsh's own README promises compatibility-breaking changes, so pin expectations
-to that version.
+Verified against `@deepseek-ai/dsh` 0.1.0-rc.6 (npm, 2026-08-16; bridge package
+`dsh-hooks-claude-code` 0.0.1-rc.5), web profile — dsh's own README promises
+compatibility-breaking changes, so pin expectations to those versions.
 
 ## Install
 
@@ -82,10 +82,10 @@ enter it once in the Web UI's Settings → Models. There are no bundled free mod
   `~/.agents/engram` — no environment variable needed. (It is the waterfall's LAST
   candidate, so any other Engram platform install on the same machine resolves first —
   same engine either way, but keep them updated together.)
-- **Subagents** (architect, blind assessor, artifact smith): dsh has a subagent tool with
-  fresh-context spawns. Engram's agent definitions aren't registered as dsh presets; the
-  skills detect this and construct the isolation themselves (`skills/_shared/subagents.md`),
-  exactly as on OpenClaw — the assessor stays blind either way.
+- **Subagents** (architect, blind assessor, artifact smith): dsh registers `subagent`
+  (fresh-context) AND `subagent_fork` (sees this conversation). Engram's skills use only
+  the former — `skills/_shared/subagents.md` carries the dsh shape, including why a forked
+  assessor would silently break the one guarantee (blindness) the receipts depend on.
 - **Sandbox**: dsh defaults to `workspace-write` permissions. Engram's state lives in
   `~/.claude/learning/` (outside the workspace); approve that write when the harness asks,
   or run with `DSH_PERMISSION_MODE` per dsh's docs.
@@ -99,9 +99,10 @@ enter it once in the Web UI's Settings → Models. There are no bundled free mod
   (the shipped template says so in-line).
 - Verified keyless on 2026-08-16 against the real runtime: skill discovery through the
   documented symlinks (three skills in `skill.list` AND in a live session's
-  `<available_skills>` catalog), and the complete nudge chain — insert patch → bridge
-  loads → SessionStart fires at agent start → the wrapper's JSON `additionalContext` is
-  injected into the session inbox. **A model-driven session has NOT been run yet** — the
+  `<available_skills>` catalog, web profile), and the nudge chain — insert patch → bridge
+  loads → SessionStart fires at agent start → a probe hook's JSON `additionalContext`
+  injected into the session inbox; the shipped wrapper's own output was separately
+  validated through the bridge's parse logic (quotes, newlines, CJK, no shell eval). **A model-driven session has NOT been run yet** — the
   learn loop, the subagent spawn route, and sandbox prompts around `~/.claude/learning`
   are exercised on every other platform but still owed here (the release's user-session
   report records this debt). If you run one before we do, an issue report — good or bad —

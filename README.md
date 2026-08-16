@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.13.0-6D4AA8.svg" alt="Version 1.13.0">
+  <img src="https://img.shields.io/badge/version-1.13.1-6D4AA8.svg" alt="Version 1.13.1">
   <a href="https://www.npmjs.com/package/opencode-engram-learning"><img src="https://img.shields.io/npm/v/opencode-engram-learning?label=npm&color=6D4AA8" alt="npm package"></a>
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/selftest-307%2F307-3E7D5A.svg" alt="307/307 checks">
@@ -33,7 +33,7 @@ claude plugin install engram@engram
 | **Google Antigravity** | `agy plugin install https://github.com/nagisanzenin/engram` | `/learn` `/review` `/coach` |
 | **OpenClaw** | `openclaw plugins install engram --marketplace nagisanzenin/engram` → [INSTALL-OPENCLAW.md](INSTALL-OPENCLAW.md) — verified on 2026.7.1-2 | `/learn` `/review` `/coach` |
 | **Pi** | `pi install git:github.com/nagisanzenin/engram` → [INSTALL-PI.md](INSTALL-PI.md) — verified on 0.83.0 & 0.74.2 | `/learn` `/review` `/coach` |
-| **DeepSeek Harness** | clone + 3 symlinks → [INSTALL-DSH.md](INSTALL-DSH.md) — no adapter code, all stock dsh surfaces; verified on 0.1.0-rc.5 | `/learn` `/review` `/coach` |
+| **DeepSeek Harness** | clone + 3 symlinks → [INSTALL-DSH.md](INSTALL-DSH.md) — no adapter code, all stock dsh surfaces; verified on 0.1.0-rc.6 | `/learn` `/review` `/coach` |
 
 <sub>OpenCode: `opencode.json` is read globally (`~/.config/opencode/opencode.json`) or per-project; pin to source instead of npm with `"plugin": ["git+https://github.com/nagisanzenin/engram.git"]`. **OpenCode 2.0 beta** (`opencode2`) uses a new plugin API — same package name works there too (V2 auto-selects the right adapter): [INSTALL-OPENCODE-V2.md](INSTALL-OPENCODE-V2.md).</sub><br>
 <sub>Antigravity: The due-review session nudge isn't ported yet, and the `architect` and `smith` subagents are currently dropped by AG 1.1.4's strict installer. Everything else works the same.</sub><br>

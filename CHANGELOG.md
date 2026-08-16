@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.13.1 — 2026-08-16 · what the post-release review caught, again
+
+§7.5 ran against shipped v1.13.0 and found what every pre-release gate had walked past.
+Patched immediately per protocol.
+
+- **The docs pinned users to a dsh version that never ran.** "Verified on 0.1.0-rc.5" —
+  the runtime was 0.1.0-rc.6; rc.5 belongs to the BRIDGE package (0.0.1-rc.5), and the
+  two got conflated into one reassuring number on a preview platform whose README
+  promises breaking changes. Corrected in all three docs, with the bridge pin now named.
+- **A fourth waterfall copy existed, and the release missed it.** The engine-resolution
+  list was extended in the three skills — and not in `agents/engram-artifact-smith.md`,
+  whose own copy the reviewer proved strands a dsh-only machine on the visuals path
+  ("engine not found", exit 2). The consistency test shipped one release ago to stop this
+  drift class hardcoded the three skill files, so it could not see the file that drifted.
+  The smith's copy now carries the candidate, and the test DISCOVERS waterfall copies by
+  their marker instead of enumerating filenames — platform nine inherits the coverage.
+- **The dsh subagent route was unspecified, and the nearest doc pointed the wrong way.**
+  dsh registers `subagent` (fresh context) AND `subagent_fork` (seeds the child with this
+  conversation) — and a forked assessor has read the lesson, which silently breaks the
+  one guarantee the receipts rest on. `skills/_shared/subagents.md` now names dsh in its
+  census and carries the dsh shape: `subagent` only, never `subagent_fork`, child pointed
+  at the agent file by path.
+- **The "complete nudge chain" claim leaned on a probe hook, not the shipped wrapper.**
+  The chain is real — the reviewer independently validated the wrapper's output through
+  the bridge's parse logic (quotes, newlines, CJK, no shell eval) and the
+  `${CLAUDE_PLUGIN_ROOT}`-unset fallback — but the release's own words outran its own
+  receipts one more time. Claims rescoped; "headless and web profiles" narrowed to the
+  web profile that actually ran; the patch template now warns that a duplicated
+  `engram-hooks` insert loads the bridge twice with no diagnostic.
+
+### Tests
+
+215 unchanged in count, one widened: the waterfall suite now checks every discovered
+copy (≥4) for every platform candidate, mutation-verified against the smith's copy.
+`selftest` 307/307.
+
+
 ## 1.13.0 — 2026-08-16 · the eighth platform (DeepSeek Harness), and the thinnest port yet
 
 DeepSeek Harness (`dsh`, DeepSeek's everything-is-a-plugin agent harness, developer
@@ -48,12 +85,12 @@ version ago, caught this time by the §5.7 blind reader.
 
 ### Verification
 
-Keyless, against the real npm `dsh` 0.1.0-rc.5 (2026-08-16): all three skills discovered
+Keyless, against the real npm `dsh` 0.1.0-rc.6 (2026-08-16): all three skills discovered
 through the documented symlink flow — in `skill.list` AND in a live session's
 `<available_skills>` catalog — and the complete nudge chain proven end to end: insert
-patch → bridge loads → SessionStart fires at agent start (marker probe) → the wrapper's
-JSON context is injected into the session inbox (`agent/inbox/spliced` carries the probe
-string). Still owed, recorded in the user-session report: a model-driven learn loop, the
+patch → bridge loads → SessionStart fires at agent start (marker probe) → a probe hook's
+JSON context injected into the session inbox (`agent/inbox/spliced`); the shipped
+wrapper's output separately validated through the bridge's parse logic. Still owed, recorded in the user-session report: a model-driven learn loop, the
 subagent spawn route, and sandbox behavior around `~/.claude/learning`. 215 vitest checks
 (+4); `selftest` unchanged at 307 — no engine diff.
 
