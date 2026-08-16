@@ -7,7 +7,10 @@ at `./server` (which the V2 runtime probes automatically) and `./v2` (the same f
 explicit reference). `opencode` and `opencode2` can run side by side against **one** Engram
 install — same extracted files, same learner data, byte-identical state.
 
-> **Beta status.** OpenCode 2.0 is in beta and its plugin API is still moving. The adapter
+> **Beta status.** OpenCode 2.0 is in beta and its plugin API is still moving. One known
+> beta limit from live testing: the free bundled models (`opencode/*-free`) drop the
+> connection (`Error: Transport`) on subagent spawns — the curriculum-architect step of
+> `/learn` — so use a configured provider for real sessions. The adapter
 > was built and verified against `opencode2 v0.0.0-next-17444` (2026-08-14; both hook call forms of the beta SDK lines are supported). Every V2 hook is
 > feature-detected: on an older beta Engram degrades feature-by-feature instead of crashing
 > the host. If something misbehaves, please report it — issue #18 tracks V2 support.
