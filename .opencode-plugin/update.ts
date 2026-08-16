@@ -105,6 +105,9 @@ function diffCategory(packageRoot: string, target: string, category: string): Di
 function transformAgentAt(filePath: string) {
   const content = readFileSync(filePath, "utf-8")
   const { attrs, body } = parseFrontmatter(content)
+  // Same skip as install.ts/transformAgentForOpenCode: re-transforming an
+  // already-transformed file strips the nested tools: map.
+  if (attrs.mode === "subagent") return
   const newAttrs: Record<string, any> = {}
   if (attrs.name) newAttrs.name = attrs.name
   if (attrs.description) newAttrs.description = attrs.description

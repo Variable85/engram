@@ -53,6 +53,19 @@ describe("runEngramUpdate input validation", () => {
     expect(runEngramUpdate(null as any)).toContain("expected an object")
   })
 
+  it("a manifest with the wrong SHAPE degrades to the corrupt message, never throws", () => {
+    for (const bad of [
+      { state: "pending", categories: null, remaining: [], applied: [] },
+      { state: "pending", categories: { skills: {} }, remaining: [], applied: [] },
+      { state: "pending", categories: { skills: { added: [], skipped: [] } }, remaining: "skills", applied: [] },
+      { state: "pending", categories: [], remaining: [], applied: [] },
+    ]) {
+      writeFileSync(resolve(tmp, ".engram-update.jsonc"), JSON.stringify(bad))
+      expect(runEngramUpdate({ target: tmp, mode: "auto" })).toContain("Corrupt manifest")
+      expect(runEngramUpdate({ target: tmp, mode: "per_file", decisions: [{ file: "skills/learn.md", action: "delete" }] })).toContain("Corrupt manifest")
+    }
+  })
+
   it("valid decisions still work end to end", () => {
     const out = runEngramUpdate({
       target: tmp,

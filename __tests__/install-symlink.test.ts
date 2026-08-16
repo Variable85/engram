@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, symlinkSync, existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { selfExtract } from "../.opencode-plugin/install"
 import { applyUpdate } from "../.opencode-plugin/update"
@@ -58,6 +58,36 @@ describe("agent transform never writes through a symlink", () => {
     const extracted = readFileSync(resolve(project, ".opencode", "agents", "assessor.md"), "utf-8")
     expect(extracted).toContain("mode: subagent")
     expect(extracted).toContain("hidden: true")
+  })
+
+  it("transforming an already-transformed agent is a no-op (tools: survives a second bump)", () => {
+    const pkgRoot = stagePackage()
+    const project = resolve(tmp, "project")
+    mkdirSync(project, { recursive: true })
+    writeFileSync(resolve(project, "opencode.jsonc"), "{}")
+
+    selfExtract(pkgRoot, project, "9.9.9")
+    const extracted = resolve(project, ".opencode", "agents", "assessor.md")
+    const afterFirst = readFileSync(extracted, "utf-8")
+    expect(afterFirst).toContain("tools:")
+    expect(afterFirst).toContain("Read: true")
+
+    rmSync(resolve(project, ".opencode", ".engram-version.jsonc"))
+    selfExtract(pkgRoot, project, "10.0.0")
+    const afterSecond = readFileSync(extracted, "utf-8")
+    expect(afterSecond).toBe(afterFirst)
+  })
+
+  it("selfExtract leaves a valid version file and no temp file behind", () => {
+    const pkgRoot = stagePackage()
+    const project = resolve(tmp, "project")
+    mkdirSync(project, { recursive: true })
+    writeFileSync(resolve(project, "opencode.jsonc"), "{}")
+
+    selfExtract(pkgRoot, project, "9.9.9")
+    const vf = resolve(project, ".opencode", ".engram-version.jsonc")
+    expect(JSON.parse(readFileSync(vf, "utf-8")).version).toBe("9.9.9")
+    expect(existsSync(vf + ".tmp")).toBe(false)
   })
 
   it("applyUpdate skips a symlinked destination", () => {

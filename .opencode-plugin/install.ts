@@ -14,7 +14,7 @@
  * On fresh install, no manifest — bridge registers agents/commands/skills in config hook.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync, rmdirSync, lstatSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync, rmdirSync, lstatSync, renameSync } from "node:fs"
 import { resolve, basename } from "node:path"
 import { execSync } from "node:child_process"
 import { parseFrontmatter } from "./parse-frontmatter.js"
@@ -369,6 +369,11 @@ function toYAML(obj: Record<string, any>): string {
 /** Transforms a Claude Code agent markdown to OpenCode YAML format (mode: subagent, hidden: true, tools string → object). */
 function transformAgentForOpenCode(content: string): string {
   const { attrs, body } = parseFrontmatter(content)
+  // Already transformed → return unchanged. Re-transforming strips the
+  // nested tools: map (the line parser reads it as empty), silently lifting
+  // every tool restriction from the extracted subagents on the SECOND
+  // version bump — shipped behavior until v1.12.0, caught by review.
+  if (attrs.mode === "subagent") return content
   const newAttrs: Record<string, any> = {}
   if (attrs.name) newAttrs.name = attrs.name
   if (attrs.description) newAttrs.description = attrs.description
@@ -495,12 +500,16 @@ export function selfExtract(packageRoot: string, directory: string, version: str
     generateCommands(target, log)
 
     const versionFile = resolve(target, ".engram-version.jsonc")
-    writeFileSync(versionFile, JSON.stringify({
+    // Atomic: a torn version file silently downgrades the next start to a
+    // fresh install — no update manifest, stale user edits never flagged.
+    const versionTmp = versionFile + ".tmp"
+    writeFileSync(versionTmp, JSON.stringify({
       version,
       previous: prevVersion || undefined,
       installed_at: new Date().toISOString(),
       source: "npm",
     }, null, 2))
+    renameSync(versionTmp, versionFile)
 
     if (prevVersion) {
       writeUpdateManifest(packageRoot, target, prevVersion, version)

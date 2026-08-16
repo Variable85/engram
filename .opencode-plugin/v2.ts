@@ -116,7 +116,7 @@
  * it made, so a host that cycles plugin generations cannot stack hooks.
  */
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync, lstatSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { execFile } from "node:child_process"
@@ -127,10 +127,6 @@ import { UPDATE_DESCRIPTION, UPDATE_TEMPLATE } from "./update-command.js"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
-/** First line of the generated /engram-update command file — the deletion
- *  guard. The file is only ever removed when it still starts with this, so a
- *  user's own commands/engram-update.md is never touched. */
-const UPDATE_COMMAND_H1 = "# /engram-update — apply Engram plugin updates"
 
 // ---------------------------------------------------------------------------
 // V2 command surface — .opencode/commands/ (plural)
@@ -153,7 +149,17 @@ export function syncUpdateCommandV2(target: string): boolean {
 
   if (pending) {
     const content = `---\ndescription: ${UPDATE_DESCRIPTION}\n---\n\n${UPDATE_TEMPLATE.replace(/\$TARGET/g, target).trimEnd()}\n`
-    if (existsSync(commandFile) && readFileSync(commandFile, "utf-8") === content) return false
+    if (existsSync(commandFile)) {
+      // Ownership guard on the WRITE path too: a user's own file with this
+      // name (or a symlink a dotfiles manager planted — writeFileSync would
+      // follow it out of the target) is never overwritten. Ownership means
+      // the file byte-starts with our exact generated header; a file that
+      // merely QUOTES the H1 somewhere is the user's.
+      try { if (lstatSync(commandFile).isSymbolicLink()) return false } catch { return false }
+      const body = readFileSync(commandFile, "utf-8")
+      if (body === content) return false
+      if (!isEngramUpdateCommand(body)) return false
+    }
     mkdirSync(resolve(target, "commands"), { recursive: true })
     writeFileSync(commandFile, content)
     return true
@@ -161,14 +167,23 @@ export function syncUpdateCommandV2(target: string): boolean {
 
   if (existsSync(commandFile)) {
     try {
+      if (lstatSync(commandFile).isSymbolicLink()) return false
       const body = readFileSync(commandFile, "utf-8")
-      if (body.includes(UPDATE_COMMAND_H1)) {
+      if (isEngramUpdateCommand(body)) {
         unlinkSync(commandFile)
         return true
       }
     } catch {}
   }
   return false
+}
+
+/** Ownership = the file byte-starts with our exact generated header (the
+ *  frontmatter open + our description line). Stronger than the old
+ *  includes(H1) check, which deleted any user file that merely quoted the
+ *  heading. */
+function isEngramUpdateCommand(body: string): boolean {
+  return body.startsWith(`---\ndescription: ${UPDATE_DESCRIPTION}\n---`)
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +370,15 @@ export function createV2Setup(deps: V2SetupDeps = {}) {
                 // direct call fails "Unknown tool" (found live, not in docs).
                 options: { codemode: false },
                 execute: async (input: UpdateArgs) => {
-                  const message = runEngramUpdate(input)
+                  let message: string
+                  try {
+                    message = runEngramUpdate(input)
+                  } catch (e) {
+                    // update-core validates args and manifest shape, so this
+                    // is the last-resort net: a rejection out of execute is
+                    // host-version-dependent territory we never enter.
+                    message = `[engram] Update failed: ${String(e)}`
+                  }
                   // content, not output: the runtime rejects a result that
                   // declares `output` when the tool has no output schema
                   // ("Tool result declared output without an output schema",

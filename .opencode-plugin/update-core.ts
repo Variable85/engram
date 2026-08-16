@@ -106,6 +106,20 @@ function isValidDecision(d: any): d is UpdateDecision {
   return !!d && typeof d.file === "string" && (d.action === "delete" || d.action === "keep")
 }
 
+/** Structural check for a hand-editable manifest: every field the mode
+ *  handlers dereference must have the type they assume. */
+function isManifestShaped(m: any): boolean {
+  if (!m || typeof m !== "object") return false
+  if (!m.categories || typeof m.categories !== "object" || Array.isArray(m.categories)) return false
+  for (const diff of Object.values(m.categories) as any[]) {
+    if (!diff || typeof diff !== "object" || !Array.isArray((diff as any).skipped) || !Array.isArray((diff as any).added)) {
+      return false
+    }
+  }
+  if (!Array.isArray(m.remaining) || !Array.isArray(m.applied)) return false
+  return true
+}
+
 export function runEngramUpdate(args: UpdateArgs): string {
   const invalid = validateArgs(args)
   if (invalid) return invalid
@@ -119,6 +133,12 @@ export function runEngramUpdate(args: UpdateArgs): string {
       return "[engram] Corrupt manifest: run /engram-update to clean up."
     }
     return "[engram] No pending update. Manifest not found."
+  }
+  // The manifest is hand-editable JSON: valid JSON with the wrong SHAPE must
+  // degrade to the corrupt-manifest message, never throw out of a tool call
+  // (the v1.3.0 review put 14 of 19 hostile shapes through the old code).
+  if (!isManifestShaped(manifest)) {
+    return "[engram] Corrupt manifest: run /engram-update to clean up."
   }
 
   switch (args.mode) {

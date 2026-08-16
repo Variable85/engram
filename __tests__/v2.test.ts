@@ -112,12 +112,38 @@ describe("syncUpdateCommandV2", () => {
     expect(existsSync(resolve(target(), "commands", "engram-update.md"))).toBe(false)
   })
 
-  it("never deletes a user's own engram-update.md (H1 guard)", () => {
+  it("never deletes a user's own engram-update.md — even one that QUOTES the heading", () => {
+    mkdirSync(resolve(target(), "commands"), { recursive: true })
+    const userFile = "my notes about `# /engram-update — apply Engram plugin updates` and how it works"
+    writeFileSync(resolve(target(), "commands", "engram-update.md"), userFile)
+
+    expect(syncUpdateCommandV2(target())).toBe(false)
+    expect(readFileSync(resolve(target(), "commands", "engram-update.md"), "utf-8")).toBe(userFile)
+  })
+
+  it("never OVERWRITES a user's own engram-update.md while a manifest is pending", () => {
     mkdirSync(resolve(target(), "commands"), { recursive: true })
     writeFileSync(resolve(target(), "commands", "engram-update.md"), "my own command")
+    writeFileSync(resolve(target(), ".engram-update.jsonc"), PENDING_MANIFEST)
 
     expect(syncUpdateCommandV2(target())).toBe(false)
     expect(readFileSync(resolve(target(), "commands", "engram-update.md"), "utf-8")).toBe("my own command")
+  })
+
+  it("never writes through a symlinked engram-update.md (dotfiles managers)", async () => {
+    const { symlinkSync } = await import("node:fs")
+    mkdirSync(resolve(target(), "commands"), { recursive: true })
+    const dotfiles = resolve(tmp, "dotfiles-copy.md")
+    writeFileSync(dotfiles, "dotfiles-managed content")
+    symlinkSync(dotfiles, resolve(target(), "commands", "engram-update.md"))
+    writeFileSync(resolve(target(), ".engram-update.jsonc"), PENDING_MANIFEST)
+
+    expect(syncUpdateCommandV2(target())).toBe(false)
+    expect(readFileSync(dotfiles, "utf-8")).toBe("dotfiles-managed content")
+
+    rmSync(resolve(target(), ".engram-update.jsonc"))
+    expect(syncUpdateCommandV2(target())).toBe(false)
+    expect(existsSync(resolve(target(), "commands", "engram-update.md"))).toBe(true)
   })
 })
 

@@ -60,13 +60,28 @@ The pre-release adversarial review (three reviewers, extracted trees) then found
 first e2e could not: model-supplied tool input reached `runEngramUpdate` unvalidated under
 V2, and one malformed per-file decision (a missing `action`) was silently consumed from the
 manifest's skipped list — recorded KEPT, never refreshed, category drained, user told the
-update completed. update-core now validates its own input (message, never a throw, never a
-consumed entry). The same review caught `writeFileSync` following symlinks in the agent
-transform loop — in a contributor checkout that rewrites the canonical `agents/` files
-every other platform ships — now lstat-guarded at both write sites. And porting those
-guards onto a moved import line produced one more lesson: an un-asserted string replace
-no-oped, `lstatSync` stayed unimported, and the guard's own `catch { continue }` silently
-skipped every agent — caught only because main's install suite diffs real extractions.
+update completed. update-core now validates its own input AND the hand-editable manifest's
+shape (message, never a throw, never a consumed entry). The same review caught
+`writeFileSync` following symlinks in the agent transform loop — in a contributor checkout
+that rewrites the canonical `agents/` files every other platform ships — now lstat-guarded
+at both write sites. And porting those guards onto a moved import line produced one more
+lesson: an un-asserted string replace no-oped, `lstatSync` stayed unimported, and the
+guard's own `catch { continue }` silently skipped every agent — caught only because main's
+install suite diffs real extractions.
+
+The failure-mode reviewer (whose report arrived last, executed rather than reasoned)
+retired three more: the `/engram-update` file's deletion guard matched any file that merely
+QUOTED its heading and its write path had no guard at all — ownership is now an exact
+generated-header prefix on both paths, with a symlink skip for dotfiles-managed configs; a
+second version bump silently stripped `tools:` from already-transformed subagents (the line
+parser reads a nested map as empty — shipped behavior since the first OpenCode release,
+fixed by skipping files already carrying `mode: subagent`); and a torn
+`.engram-version.jsonc` downgraded the next start to a fresh install with no update
+manifest — the write is atomic now. Two live-runtime facts no docs carry, found by calling
+the tool in a real session: default-options tools route through the codemode meta-tool and
+are NOT callable by name (`engram_update` registers `codemode: false`), and a result that
+declares `output` without an output schema is rejected — the belt-and-suspenders dual-field
+return from an earlier review fix was itself the bug.
 
 Two near-misses worth recording: `{ id, server }` alone is **rejected** by the V2 loader
 (the schema demands a setup/effect function — verified by running the actual loader schema,
@@ -77,10 +92,12 @@ binary — whose bundled source maps, not the (lagging) docs, were the ground tr
 
 ### Tests
 
-164 → 199 vitest checks (35 new: V2 setup registrations, per-session update surfacing,
-workspace-directory resolution incl. the service-cwd regression and the hooks-only
-fallback, H1-guarded removal, update-core input validation, symlink write-through guards,
-SDK-drift tolerance, schema parity across the three input-schema copies). Every
+164 → 206 vitest checks (42 new: V2 setup registrations, per-session update surfacing,
+workspace-directory resolution incl. the service-cwd regression, the hooks-only fallback
+and the extraction-scope guard, header-ownership on the update command file, update-core
+input + manifest-shape validation, symlink write-through guards, double-transform
+idempotence, atomic version writes, SDK-drift tolerance, schema parity across the three
+input-schema copies). Every
 load-bearing new check mutation-tested (fix reverted → that check fails). `selftest`
 unchanged at 307 — no engine diff, so no new fuzz or numbers surface this release.
 End-to-end verified on `opencode2 v0.0.0-next-17444`: plugin active, fresh install
