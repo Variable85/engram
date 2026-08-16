@@ -348,11 +348,19 @@ export function createV2Setup(deps: V2SetupDeps = {}) {
                 description:
                   "Apply Engram plugin updates — delete preserved files and update the manifest. Only call when the /engram-update command instructs you.",
                 input: UPDATE_TOOL_INPUT,
+                // The shipping V2 build routes default-options tools through
+                // the codemode meta-tool; only codemode:false tools are
+                // callable BY NAME, which is what the /engram-update template
+                // instructs. Without this the tool is advertised yet every
+                // direct call fails "Unknown tool" (found live, not in docs).
+                options: { codemode: false },
                 execute: async (input: UpdateArgs) => {
                   const message = runEngramUpdate(input)
-                  // The rendered-result field is the one V2 surface docs and
-                  // types leave ambiguous across builds — set both.
-                  return { output: message, content: message }
+                  // content, not output: the runtime rejects a result that
+                  // declares `output` when the tool has no output schema
+                  // ("Tool result declared output without an output schema",
+                  // found live). content is the free-form result field.
+                  return { content: message }
                 },
               })
             } catch {}

@@ -207,10 +207,11 @@ describe("setup — registrations against a recording ctx", () => {
     expect(calls.tools).toHaveLength(1)
     expect(calls.tools[0].name).toBe("engram_update")
     expect(calls.tools[0].input).toBe(UPDATE_TOOL_INPUT)
+    expect(calls.tools[0].options).toEqual({ codemode: false })
 
     const result = await calls.tools[0].execute({ target: target(), mode: "skip" })
     expect(result.content).toContain("[engram]")
-    expect(result.output).toBe(result.content)
+    expect(result.output).toBeUndefined()
   })
 
   it("does NOT register the tool without a manifest", async () => {
