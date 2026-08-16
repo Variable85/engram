@@ -21,7 +21,7 @@
  * via node -e (see pseudo-command template in index.ts).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, copyFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, copyFileSync, lstatSync } from "node:fs"
 import { resolve, relative } from "node:path"
 import { parseFrontmatter } from "./parse-frontmatter.js"
 import { writeUpdateDiff } from "./diff.js"
@@ -105,6 +105,9 @@ function diffCategory(packageRoot: string, target: string, category: string): Di
 function transformAgentAt(filePath: string) {
   const content = readFileSync(filePath, "utf-8")
   const { attrs, body } = parseFrontmatter(content)
+  // Same skip as install.ts/transformAgentForOpenCode: re-transforming an
+  // already-transformed file strips the nested tools: map.
+  if (attrs.mode === "subagent") return
   const newAttrs: Record<string, any> = {}
   if (attrs.name) newAttrs.name = attrs.name
   if (attrs.description) newAttrs.description = attrs.description
@@ -206,6 +209,10 @@ export function applyUpdate(target: string, category: string, sources: string[])
     const src = resolve(m.source, relPath)
     const dest = resolve(target, relPath)
     if (!existsSync(src)) continue
+    // Same guard as selfExtract's transform loop: copyFileSync and
+    // writeFileSync both follow symlinks, and a symlinked dest points at a
+    // file that is not ours to overwrite.
+    try { if (lstatSync(dest).isSymbolicLink()) continue } catch {}
     mkdirSync(resolve(dest, ".."), { recursive: true })
     copyFileSync(src, dest)
     if (category === AGENTS_DIR) transformAgentAt(dest)

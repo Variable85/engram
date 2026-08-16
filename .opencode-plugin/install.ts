@@ -14,7 +14,7 @@
  * On fresh install, no manifest — bridge registers agents/commands/skills in config hook.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync, rmdirSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync, rmdirSync, lstatSync, renameSync } from "node:fs"
 import { resolve, basename } from "node:path"
 import { execSync } from "node:child_process"
 import { parseFrontmatter } from "./parse-frontmatter.js"
@@ -369,6 +369,11 @@ function toYAML(obj: Record<string, any>): string {
 /** Transforms a Claude Code agent markdown to OpenCode YAML format (mode: subagent, hidden: true, tools string → object). */
 function transformAgentForOpenCode(content: string): string {
   const { attrs, body } = parseFrontmatter(content)
+  // Already transformed → return unchanged. Re-transforming strips the
+  // nested tools: map (the line parser reads it as empty), silently lifting
+  // every tool restriction from the extracted subagents on the SECOND
+  // version bump — shipped behavior until v1.12.0, caught by review.
+  if (attrs.mode === "subagent") return content
   const newAttrs: Record<string, any> = {}
   if (attrs.name) newAttrs.name = attrs.name
   if (attrs.description) newAttrs.description = attrs.description
@@ -385,7 +390,7 @@ function transformAgentForOpenCode(content: string): string {
   return `---\n${toYAML(newAttrs)}\n---\n\n${body.trimEnd()}\n`
 }
 
-const COMMANDS_DEF: Record<string, { description: string; template: string }> = {
+export const COMMANDS_DEF: Record<string, { description: string; template: string }> = {
   learn: {
     description:
       "Learn any topic properly — first-principles curriculum, generation-first tutoring, verified free recall, FSRS scheduling",
@@ -470,6 +475,12 @@ export function selfExtract(packageRoot: string, directory: string, version: str
       for (const file of readdirSync(agentsDestDir)) {
         if (!file.endsWith(".md")) continue
         const filePath = resolve(agentsDestDir, file)
+        // writeFileSync follows symlinks. A symlinked agent (a contributor
+        // checkout linking a target's agents/*.md to the canonical agents/
+        // tree) is by definition not an extracted copy, so it is never ours
+        // to transform — writing through the link would rewrite the files
+        // every other platform ships.
+        try { if (lstatSync(filePath).isSymbolicLink()) continue } catch { continue }
         const original = readFileSync(filePath, "utf-8")
         const transformed = transformAgentForOpenCode(original)
         writeFileSync(filePath, transformed)
@@ -489,12 +500,16 @@ export function selfExtract(packageRoot: string, directory: string, version: str
     generateCommands(target, log)
 
     const versionFile = resolve(target, ".engram-version.jsonc")
-    writeFileSync(versionFile, JSON.stringify({
+    // Atomic: a torn version file silently downgrades the next start to a
+    // fresh install — no update manifest, stale user edits never flagged.
+    const versionTmp = versionFile + ".tmp"
+    writeFileSync(versionTmp, JSON.stringify({
       version,
       previous: prevVersion || undefined,
       installed_at: new Date().toISOString(),
       source: "npm",
     }, null, 2))
+    renameSync(versionTmp, versionFile)
 
     if (prevVersion) {
       writeUpdateManifest(packageRoot, target, prevVersion, version)
