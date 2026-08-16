@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.13.0 — 2026-08-16 · the eighth platform (DeepSeek Harness), and the thinnest port yet
+
+DeepSeek Harness (`dsh`, DeepSeek's everything-is-a-plugin agent harness, developer
+preview) becomes Engram's eighth platform — with **zero adapter code**. dsh natively reads
+directory-bundle `SKILL.md` skills from `~/.agents/skills` (Engram's exact format),
+discovers `AGENTS.md`, bridges unmodified Claude Code hooks, and ships a fresh-context
+subagent tool. The port is a clone, three symlinks, one optional patch block, and one new
+candidate in the skills' engine-resolution waterfall.
+
+### Packaging
+
+- **Engine waterfall** gains `$HOME/.agents/engram` — the shared agent home, phrased as a
+  convention path so any platform that reads `~/.agents` inherits it, not as a dsh-specific
+  branch (§5.7 doctrine: capability paths, never platform names). A new consistency test
+  pins the candidate LIST byte-identical across all three skills — and immediately caught
+  pre-existing comment drift between the copies, which is exactly the drift class it
+  exists to stop.
+- **`dsh/cordis.patch.yml`** — the nudge patch for dsh's Claude Code hook bridge, pointed
+  at Engram's stock `hooks/hooks.json`. `session-start.sh` runs byte-unchanged: its
+  self-resolution fallback already covers a host that sets no plugin-root variable.
+- INSTALL-DSH.md, README row + sub-note (eight platforms), `dsh-plugin` npm keyword,
+  `dsh/` + INSTALL-DSH.md in the tarball.
+
+### The embarrassing part, kept per protocol
+
+The first install instruction shipped `cat >> cordis.patch.yml` — which lands after the
+profile template's trailing empty list `[]` and is invalid YAML. dsh's fail-loud boot
+refused to start. Caught by running the documented steps in a sandboxed `$DSH_HOME` before
+the doc shipped; the instruction now says *replace the `[]`*, and notes that the loud
+failure doubles as proof the patch file is being read. Also verified the hard way: the
+`dsh plugin add` step the doc originally required needs pnpm — and is unnecessary, because
+the bridge ships inside the dsh npm bundle.
+
+### Verification
+
+Keyless, against the real npm `dsh` (2026-08-16): `skill.list` returns all three skills
+through the documented symlink flow with correct metadata; the nudge patch boots clean
+under the fail-loud loader. Live keyed verification (hook firing in a session, the learn
+loop, sandbox behavior around `~/.claude/learning`) is recorded in the release's
+user-session report. 214 vitest checks (+3); `selftest` unchanged at 307 — no engine diff.
+
+
 ## 1.12.1 — 2026-08-16 · what the post-release review caught
 
 §7.5 ran against shipped v1.12.0 within the hour and earned its place again. One HIGH,
