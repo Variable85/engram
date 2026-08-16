@@ -48,8 +48,8 @@ STOP. Do not continue.
 
 ### STEP 4 — State "pending": present choices
 Output: "Engram {manifest.from} → {manifest.to}"
-For each category in manifest.categories, output:
-  "{name}: {added.length} added, {skipped.length} preserved"
+For each category in manifest.categories with a non-empty skipped array, output:
+  "{name}: {skipped.length} preserved files differ from the shipped version"
 Use the question tool:
   header: "Engram Update"
   question: "How to apply Engram {manifest.from} → {manifest.to}?"
@@ -85,7 +85,7 @@ For each category name in manifest.remaining, in order:
 After ALL files in all remaining categories have been answered:
   Call tool: engram_update({ target: "$TARGET", mode: "per_file", decisions: [ALL_TRACKED_DECISIONS] })
   Output the tool's return message. Do NOT modify or paraphrase it.
-  If the message says remaining is empty → "Manual update complete. Restart or reload."
+  If the message says all files processed → "Manual update complete. Restart or reload."
   If the message says checkpoint saved → "Checkpoint saved. Continue with /engram-update on next session."
 STOP.
 

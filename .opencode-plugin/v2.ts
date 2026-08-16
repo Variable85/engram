@@ -120,7 +120,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync, lstatSy
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { execFile } from "node:child_process"
-import { selfExtract, getExtractTarget, getVERSION, syncProjectState, COMMANDS_DEF } from "./install.js"
+import { selfExtract, getExtractTarget, getVERSION, syncProjectState } from "./install.js"
 import { readManifest } from "./update.js"
 import { runEngramUpdate, type UpdateArgs } from "./update-core.js"
 import { UPDATE_DESCRIPTION, UPDATE_TEMPLATE } from "./update-command.js"
@@ -438,7 +438,20 @@ export function createV2Setup(deps: V2SetupDeps = {}) {
             const nudge = await runNudge(engramPy)
             if (nudge) sc.system.push({ type: "text", text: `\n[engram] ${nudge}` })
 
-            if (target) {
+            if (target && extractDir) {
+              // Re-extraction is idempotent (version-file guard), so this is
+              // a no-op on every normal session — but after /engram-update
+              // resolves (version file deleted), it restores the refreshed
+              // files on the NEXT session instead of the next service
+              // restart. v1.12.0 left the tree holed until restart (§7.5).
+              try {
+                const re = selfExtract(root, extractDir, getVERSION(root), undefined)
+                if (re.freshlyExtracted) {
+                  try { await ctx?.skill?.reload?.() } catch {}
+                  try { await ctx?.agent?.reload?.() } catch {}
+                  try { await ctx?.command?.reload?.() } catch {}
+                }
+              } catch {}
               try { if (syncUpdateCommandV2(target)) await ctx?.command?.reload?.() } catch {}
               if (existsSync(resolve(target, ".engram-update.jsonc"))) {
                 await registerUpdateTool()
