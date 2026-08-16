@@ -8,7 +8,9 @@ instructions, an unmodified-Claude-Code hook bridge for the session nudge, and a
 tool for the blind assessor. No adapter code — the port is a clone, three symlinks, and one
 optional patch block.
 
-Verified against `@deepseek-ai/dsh` (npm, 2026-08-16), headless and web profiles.
+Verified against `@deepseek-ai/dsh` 0.1.0-rc.5 (npm, 2026-08-16), headless and web
+profiles — dsh's own README promises compatibility-breaking changes, so pin expectations
+to that version.
 
 ## Install
 
@@ -23,23 +25,45 @@ git clone https://github.com/nagisanzenin/engram ~/.agents/engram
 
 ```sh
 mkdir -p ~/.agents/skills
-for s in learn review coach; do ln -sfn ~/.agents/engram/skills/$s ~/.agents/skills/$s; done
+for s in learn review coach; do
+  if [ -e ~/.agents/skills/$s ] && [ ! -L ~/.agents/skills/$s ]; then
+    echo "engram: ~/.agents/skills/$s already exists — move it aside first"; continue
+  fi
+  ln -sfn ~/.agents/engram/skills/$s ~/.agents/skills/$s
+done
 ```
 
-dsh's skill provider watches these roots live — no restart needed. The skills appear in the
-session's skill catalog; invoke them by name (`learn`, `review`, `coach`) from the composer
-or let the model load them.
+(The guard matters: `ln -sfn` into an existing real directory silently nests the link one
+level deep, where dsh deliberately does not look — and `learn`/`review`/`coach` are generic
+names in a shared namespace.)
 
-**3 · The nudge (optional but recommended)** — dsh runs Engram's stock Claude Code
-SessionStart hook through its bundled hook bridge; no extra package install is needed.
-Open `~/.dsh/profiles/<profile>/cordis.patch.yml` (created on that profile's first boot)
-and **replace the trailing empty list `[]`** with the block from
-[dsh/cordis.patch.yml](dsh/cordis.patch.yml), substituting your absolute home path —
-then restart the profile. Do NOT append after the `[]`: that is invalid YAML, and dsh
-fails loud at boot (which is also your confirmation the patch is being read).
+dsh documents these roots as live-watched (no restart needed). The skills appear in the
+session's skill catalog; invoke them as **`/learn`, `/review`, `/coach`** — dsh's `/` menu
+lists user-invocable skills, and a hand-typed `/learn` anywhere in a message loads the
+skill the same way. (A bare `learn` without the slash stays ordinary prose.)
 
-The bridge runs Engram's `hooks/hooks.json` — the same file Claude Code runs, unmodified.
-The hook prints at most two lines when reviews are due and nothing otherwise.
+**3 · The nudge (optional but recommended)** — dsh bridges Claude Code hooks, and Engram
+ships a dsh-specific SessionStart wrapper (`hooks/session-start-dsh.sh`) that emits the
+JSON `additionalContext` shape the bridge consumes — dsh discards plain hook stdout, so
+the stock Claude Code hook would run but deliver nothing. Three steps, per profile you use
+(`web`, `headless`); step order matters:
+
+```sh
+# 1 · the bridge + its out-of-closure peer (needs pnpm: `npm i -g pnpm` or corepack)
+dsh plugin --profile web add @deepseek-ai/dsh-hooks-claude-code
+dsh plugin --profile web add @deepseek-ai/dsh-hook-protocol
+# 2 · open $DSH_HOME/profiles/web/cordis.patch.yml and REPLACE the trailing `[]`
+#     with the insert block from ~/.agents/engram/dsh/cordis.patch.yml
+#     (absolute paths — ~ is not expanded). Then: 3 · restart the profile.
+```
+
+Two failure modes worth knowing, both found the hard way: an *override*-style patch entry
+(no `insert:`) naming an id that exists in no layer is skipped with only a loader warning
+— it looks exactly like success — and appending after the template's `[]` is invalid YAML
+(that one fails loud). The shipped block uses the insert form, which also fails loud on a
+missing package. Verify with a hook **event**, not a clean boot: after your next prompt
+the due-review line appears in the session (or
+`grep -l hook $DSH_HOME/sessions/*/*/session.jsonl.zstd`).
 
 **4 · Instructions (optional):** dsh discovers `AGENTS.md` (and `CLAUDE.md`) in the
 project and the user-global `~/.dsh/AGENTS.md`. Appending Engram's block there makes the
@@ -55,7 +79,9 @@ enter it once in the Web UI's Settings → Models. There are no bundled free mod
 - **State**: the same `~/.claude/learning/` as every other platform — learn in dsh, review
   in Claude Code, one schedule.
 - **Engine resolution**: the skills resolve `scripts/engram.py` from the clone at
-  `~/.agents/engram` — no environment variable needed.
+  `~/.agents/engram` — no environment variable needed. (It is the waterfall's LAST
+  candidate, so any other Engram platform install on the same machine resolves first —
+  same engine either way, but keep them updated together.)
 - **Subagents** (architect, blind assessor, artifact smith): dsh has a subagent tool with
   fresh-context spawns. Engram's agent definitions aren't registered as dsh presets; the
   skills detect this and construct the isolation themselves (`skills/_shared/subagents.md`),
@@ -71,10 +97,12 @@ enter it once in the Web UI's Settings → Models. There are no bundled free mod
   not a crash.
 - `~` is not expanded in patch-config strings — the patch block must carry absolute paths
   (the shipped template says so in-line).
-- Verified keyless on 2026-08-16: skill discovery through the documented symlinks (all
-  three skills in `skill.list` with correct metadata) and a clean fail-loud boot with the
-  nudge patch applied. **A live keyed session has NOT been run yet** — hook firing inside a
-  session, the full learn loop, the subagent spawn, and sandbox prompts around
-  `~/.claude/learning` are exercised on every other platform but still owed here (the
-  release's user-session report records this debt). If you run one before we do, an issue
-  report — good or bad — closes that gap for everyone.
+- Verified keyless on 2026-08-16 against the real runtime: skill discovery through the
+  documented symlinks (three skills in `skill.list` AND in a live session's
+  `<available_skills>` catalog), and the complete nudge chain — insert patch → bridge
+  loads → SessionStart fires at agent start → the wrapper's JSON `additionalContext` is
+  injected into the session inbox. **A model-driven session has NOT been run yet** — the
+  learn loop, the subagent spawn route, and sandbox prompts around `~/.claude/learning`
+  are exercised on every other platform but still owed here (the release's user-session
+  report records this debt). If you run one before we do, an issue report — good or bad —
+  closes that gap for everyone.

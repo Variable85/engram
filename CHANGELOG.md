@@ -13,33 +13,49 @@ candidate in the skills' engine-resolution waterfall.
 
 - **Engine waterfall** gains `$HOME/.agents/engram` — the shared agent home, phrased as a
   convention path so any platform that reads `~/.agents` inherits it, not as a dsh-specific
-  branch (§5.7 doctrine: capability paths, never platform names). A new consistency test
-  pins the candidate LIST byte-identical across all three skills — and immediately caught
-  pre-existing comment drift between the copies, which is exactly the drift class it
-  exists to stop.
-- **`dsh/cordis.patch.yml`** — the nudge patch for dsh's Claude Code hook bridge, pointed
-  at Engram's stock `hooks/hooks.json`. `session-start.sh` runs byte-unchanged: its
-  self-resolution fallback already covers a host that sets no plugin-root variable.
+  branch (§5.7 doctrine: capability paths, never platform names). It sits LAST, behind
+  `$PWD`/git-toplevel — the review built the machine where an earlier position silently
+  shadowed a contributor's checkout. A new consistency suite pins the candidate list
+  byte-identical across all three skills, the order (`$PWD` ahead of the clone), and the
+  fail-closed guard in every skill. (An earlier byte-identical draft of that test caught
+  pre-existing comment drift between the copies; the shipped test deliberately pins only
+  the candidate list — comments legitimately differ per skill.)
+- **`hooks/session-start-dsh.sh` + `dsh/hooks.json` + `dsh/cordis.patch.yml`** — the nudge
+  for dsh's Claude Code hook bridge. The wrapper emits the JSON `additionalContext` shape
+  (the Hermes precedent) because dsh discards plain SessionStart stdout; the patch uses
+  the loader's *insert* form and documents the two-package `dsh plugin add` prerequisite.
+  Claude Code's and Codex's own hook files are byte-unchanged.
 - INSTALL-DSH.md, README row + sub-note (eight platforms), `dsh-plugin` npm keyword,
   `dsh/` + INSTALL-DSH.md in the tarball.
 
-### The embarrassing part, kept per protocol
+### The embarrassing parts, kept per protocol
 
-The first install instruction shipped `cat >> cordis.patch.yml` — which lands after the
-profile template's trailing empty list `[]` and is invalid YAML. dsh's fail-loud boot
-refused to start. Caught by running the documented steps in a sandboxed `$DSH_HOME` before
-the doc shipped; the instruction now says *replace the `[]`*, and notes that the loud
-failure doubles as proof the patch file is being read. Also verified the hard way: the
-`dsh plugin add` step the doc originally required needs pnpm — and is unnecessary, because
-the bridge ships inside the dsh npm bundle.
+The nudge this release first shipped could not deliver a single character, twice over —
+and the evidence of failure had been read as success. dsh's bridge consumes only the JSON
+`hookSpecificOutput.additionalContext` shape (plain SessionStart stdout is discarded — a
+documented dsh limitation nobody re-read), and the bridge package is not in the dsh npm
+bundle's dependency closure at all: the patch entry naming it was an *override* targeting
+a row that exists in no layer, which the loader skips with a warning — so the recorded
+"clean boot" was the failure mode itself wearing the success signal. The adversarial
+review proved both from dsh's source and this machine's own session records, keylessly.
+The fixes: a JSON-emitting wrapper, the loader's *insert* form (which fails loud on a
+missing package), the honest two-package `dsh plugin add` prerequisite, and a verification
+instruction that checks for a hook EVENT instead of a clean start. Smaller kin, same
+lesson: `cat >>` after the profile template's trailing `[]` is invalid YAML (that one dsh
+does refuse loudly), and the first waterfall-comment amendment was an un-asserted string
+replace that silently no-op'd — the same trap this repo wrote into its release memory one
+version ago, caught this time by the §5.7 blind reader.
 
 ### Verification
 
-Keyless, against the real npm `dsh` (2026-08-16): `skill.list` returns all three skills
-through the documented symlink flow with correct metadata; the nudge patch boots clean
-under the fail-loud loader. Live keyed verification (hook firing in a session, the learn
-loop, sandbox behavior around `~/.claude/learning`) is recorded in the release's
-user-session report. 214 vitest checks (+3); `selftest` unchanged at 307 — no engine diff.
+Keyless, against the real npm `dsh` 0.1.0-rc.5 (2026-08-16): all three skills discovered
+through the documented symlink flow — in `skill.list` AND in a live session's
+`<available_skills>` catalog — and the complete nudge chain proven end to end: insert
+patch → bridge loads → SessionStart fires at agent start (marker probe) → the wrapper's
+JSON context is injected into the session inbox (`agent/inbox/spliced` carries the probe
+string). Still owed, recorded in the user-session report: a model-driven learn loop, the
+subagent spawn route, and sandbox behavior around `~/.claude/learning`. 215 vitest checks
+(+4); `selftest` unchanged at 307 — no engine diff.
 
 
 ## 1.12.1 — 2026-08-16 · what the post-release review caught

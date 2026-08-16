@@ -1,32 +1,31 @@
 # Engram — DeepSeek Harness nudge patch
 # =====================================
-# Enables the harness's Claude Code hook bridge and points it at Engram's
-# stock SessionStart hook (the due-review nudge — at most two quiet lines,
-# silent when nothing is due). Engram's skills and instructions need no
-# patch at all: dsh discovers ~/.agents/skills natively, and the hook script
-# self-resolves its engine from its own location.
+# Enables dsh's Claude Code hook bridge and points it at Engram's dsh hook
+# file (hooks/session-start-dsh.sh emits the JSON additionalContext shape —
+# dsh's bridge discards plain SessionStart stdout, so the stock Claude Code
+# hook would run but deliver nothing).
 #
-# Install — TWO steps, and the order matters:
+# Install — THREE steps, order matters, repeat per profile (web, headless):
 #
-#   1. Install the bridge package into the profile (it is NOT part of the
-#      dsh npm bundle's dependency closure — a patch naming an unresolvable
-#      plugin fails SILENTLY at boot, which looks exactly like success):
-#        corepack pnpm --version || npm i -g pnpm   # dsh's plugin command needs pnpm
+#   1. The bridge and its one out-of-closure peer are NOT in the dsh npm
+#      bundle (an override-style patch naming an unknown id fails SILENTLY;
+#      the insert form below fails loud — which is what you want):
 #        dsh plugin --profile web add @deepseek-ai/dsh-hooks-claude-code
-#   2. Open $DSH_HOME/profiles/<profile>/cordis.patch.yml (created on the
+#        dsh plugin --profile web add @deepseek-ai/dsh-hook-protocol
+#      (dsh's plugin command needs pnpm on PATH: `npm i -g pnpm` or corepack.)
+#   2. Open $DSH_HOME/profiles/web/cordis.patch.yml (created on that
 #      profile's first boot), REPLACE the trailing empty list `[]` with the
-#      block below, and restart that profile. Appending after the `[]` is
-#      invalid YAML and dsh refuses to boot (that failure IS loud).
-#      (Repeat both steps per profile you use: web, headless.)
+#      insert block below, substituting your absolute home path — `~` is not
+#      expanded. Appending after the `[]` is invalid YAML (loud failure).
+#   3. Restart the profile.
 #
-# Verification is a hook EVENT, not a clean boot: after your next session
-# starts, `grep hook/invoked $DSH_HOME/sessions/*/*.jsonl` (or check the
-# session's event view) — a clean boot proves nothing about the bridge.
-#
-# Replace both paths with your absolute home path (e.g. /Users/you/...) —
-# `~` is not expanded inside patch config strings.
-- id: engram-hooks
-  name: '@deepseek-ai/dsh-hooks-claude-code'
-  config:
-    configPath: /ABSOLUTE/HOME/.agents/engram/dsh/hooks.json
-    pluginRoot: /ABSOLUTE/HOME/.agents/engram
+# Verify with a hook EVENT, not a clean boot: after your next prompt,
+#   grep -l hook $DSH_HOME/sessions/*/*/session.jsonl.zstd  — or simply see
+# the due-review line appear in the session. A missing package fails loud at
+# boot with the insert form; a clean boot plus a fired hook is the real pair.
+- insert:
+    - id: engram-hooks
+      name: '@deepseek-ai/dsh-hooks-claude-code'
+      config:
+        configPath: /ABSOLUTE/HOME/.agents/engram/dsh/hooks.json
+        pluginRoot: /ABSOLUTE/HOME/.agents/engram
