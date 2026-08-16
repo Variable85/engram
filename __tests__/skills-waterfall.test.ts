@@ -57,8 +57,15 @@ describe("engine-resolution waterfall", () => {
     }
   })
 
-  it("fails closed when no candidate resolves", () => {
-    const block = waterfallBlock("learn")
-    expect(block).toContain("FAIL CLOSED")
+  it("fails closed when no candidate resolves — in every skill", () => {
+    for (const skill of SKILLS) {
+      expect(waterfallBlock(skill), `${skill}: fail-closed guard missing`).toContain("FAIL CLOSED")
+    }
+  })
+
+  it("keeps the working tree ahead of the shared-home clone (a contributor's checkout must win)", () => {
+    const list = candidateList("learn")
+    expect(list.indexOf('"$PWD"')).toBeGreaterThan(-1)
+    expect(list.indexOf('"$HOME/.agents/engram"')).toBeGreaterThan(list.indexOf('"$PWD"'))
   })
 })
