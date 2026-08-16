@@ -364,6 +364,39 @@ describe("extraction scope (second wrong-directory class: non-workspace location
   })
 })
 
+describe("mid-session update resolution heals without a restart", () => {
+  it("the next session re-extracts what /engram-update removed", async () => {
+    const { ctx, calls } = mkCtx(tmp)
+    await createV2Setup({ runNudge: async () => "" })(ctx)
+    expect(existsSync(resolve(target(), "skills", "learn", "SKILL.md"))).toBe(true)
+
+    // /engram-update auto mode deletes refreshed files + the version guard.
+    rmSync(resolve(target(), "skills", "learn", "SKILL.md"))
+    rmSync(resolve(target(), ".engram-version.jsonc"))
+    calls.reloads.length = 0
+
+    const sc = { sessionID: "s-next", system: [] as any[] }
+    await calls.sessionHooks["context"](sc)
+
+    expect(existsSync(resolve(target(), "skills", "learn", "SKILL.md"))).toBe(true)
+    expect(calls.reloads).toContain("skill")
+    expect(calls.reloads).toContain("command")
+  })
+
+  it("is a no-op on a normal session (version guard intact)", async () => {
+    const { ctx, calls } = mkCtx(tmp)
+    await createV2Setup({ runNudge: async () => "" })(ctx)
+    const before = readFileSync(resolve(target(), ".engram-version.jsonc"), "utf-8")
+    calls.reloads.length = 0
+
+    const sc = { sessionID: "s-quiet", system: [] as any[] }
+    await calls.sessionHooks["context"](sc)
+
+    expect(readFileSync(resolve(target(), ".engram-version.jsonc"), "utf-8")).toBe(before)
+    expect(calls.reloads).not.toContain("skill")
+  })
+})
+
 describe("SDK drift tolerance", () => {
   it("registerHook supports the mapped-object hook form of the older V2 line", async () => {
     const seen: string[] = []

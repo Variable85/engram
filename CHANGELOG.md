@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.12.1 — 2026-08-16 · what the post-release review caught
+
+§7.5 ran against shipped v1.12.0 within the hour and earned its place again. One HIGH,
+patched immediately per protocol.
+
+- **v1.12.0's own hardening made corrupt update-state unrecoverable.** The new manifest
+  shape gate ran before EVERY tool mode — including `cleanup`, the template's designated
+  recovery path for exactly that state. A wrong-shape manifest answered every attempt with
+  "Corrupt manifest: run /engram-update to clean up" — which is the command the user had
+  just run. A closed loop, and under V2 the nudge re-advertised it every session. `cleanup`
+  now runs before any gate that needs a readable manifest (it only unlinks files), and the
+  missing test cell — recovery mode × corrupt state — exists in both flavors. The fix that
+  turned throws into messages had turned one recoverable state into an unrecoverable one:
+  run every gate against the release that adds it.
+- **Manifest writes are now atomic** (tmp + rename), closing the torn-write route INTO that
+  corrupt state. v1.12.0 made the version file atomic and left the three manifest writes
+  beside it plain; the reviewer read the asymmetry.
+- **Mid-session update resolution no longer leaves the tree holed until a service
+  restart:** the per-session hook now also re-runs the (version-guarded, idempotent)
+  extraction, so files removed by `/engram-update` are restored on the next session with
+  the domain reloads to match. v1.12.0 moved the update *surface* to per-session cadence
+  but left re-extraction bound to server start.
+- **The /engram-update decision screen no longer prints "0 added" unconditionally** — the
+  added count was structurally always zero (extraction copies new files before the diff
+  runs), a number wrong in the reassuring direction on the screen where the user decides.
+  The screen now reports only what is true there: preserved files that differ. Inherited
+  wording, first flagged here.
+- Docs: INSTALL-OPENCODE-V2.md claimed 189 checks (a count from mid-hardening; it is 206 —
+  211 after this patch), listed the legacy `command/` dir the code deletes, and said the
+  nudge fires "once per server process" when the release's own headline fix made it
+  per-session. The one document a V2 user reads now agrees with the code. A template
+  branch cue that no tool message ever emits ("remaining is empty") now matches the real
+  completion message.
+
+### Tests
+
+206 → 211 (cleanup × corrupt-JSON, cleanup × wrong-shape, atomic checkpoint, per-session
+re-extraction, and its no-op guard). Both headline fixes mutation-tested. `selftest`
+unchanged at 307.
+
+
 ## 1.12.0 — 2026-08-16 · OpenCode 2.0: a second entry point, one engine (#18)
 
 OpenCode 2.0 (the `opencode2` beta) replaced its plugin API and does not load V1 plugins —

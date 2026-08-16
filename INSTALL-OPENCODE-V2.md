@@ -74,15 +74,15 @@ and writes the `AGENTS.md` block V2 discovers natively.
 | Commands on disk | `commands/` (shared selfExtract, plural since v1.10.x) | identical — V2's canonical discovery dir |
 | `/engram-update` while an update is pending | in-memory pseudo-command | generated `commands/engram-update.md`, removed when resolved (guarded — your own file with that name is never touched) |
 | Update toast | TUI toast on `session.idle` | dropped — V2 plugins have no toast API; the system-prompt notification remains |
-| Session nudge | injected via `system.transform` | injected via the V2 session context hook, once per server process |
+| Session nudge | injected via `system.transform` | injected via the V2 session context hook, once per session |
 | Agent `tools:` frontmatter | honored | legacy in V2 (superseded by `permissions:`); files keep the V1 shape so both engines can share them. The assessor's blindness is enforced by its prompt, as on OpenClaw |
 
 ## Verified against the real beta
 
 Smoke-tested end to end on `opencode2 v0.0.0-next-17444`: plugin listed as active,
-self-extraction into the project (`command/` + `commands/` + skills + agents + scripts),
+self-extraction into the project (`commands/` + skills + agents + scripts),
 `AGENTS.md` written, nothing leaked into `~/.config/opencode/` from a project workspace, and
-`npx vitest run` green (189 checks, V1 suite untouched).
+`npx vitest run` green (206 checks; the pre-existing V1 tests run unmodified).
 
 One V2-specific behavior worth knowing: V2 runs plugins inside a background service shared
 across projects, so Engram never trusts `process.cwd()` — it asks the plugin API for the

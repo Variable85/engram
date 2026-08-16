@@ -21,7 +21,7 @@
  * via node -e (see pseudo-command template in index.ts).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, copyFileSync, lstatSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, copyFileSync, lstatSync, renameSync } from "node:fs"
 import { resolve, relative } from "node:path"
 import { parseFrontmatter } from "./parse-frontmatter.js"
 import { writeUpdateDiff } from "./diff.js"
@@ -152,13 +152,21 @@ export function writeUpdateManifest(packageRoot: string, target: string, prevVer
     applied: [],
     remaining,
   }
-  writeFileSync(resolve(target, ".engram-update.jsonc"), JSON.stringify(manifest, null, 2))
+  atomicWrite(resolve(target, ".engram-update.jsonc"), JSON.stringify(manifest, null, 2))
   writeUpdateDiff(packageRoot, target, categories, version)
 }
 
 /** Persists manifest to disk. Used by per-file checkpointing (node -e in the template). */
 export function saveManifest(target: string, manifest: Manifest) {
-  writeFileSync(resolve(target, ".engram-update.jsonc"), JSON.stringify(manifest, null, 2))
+  atomicWrite(resolve(target, ".engram-update.jsonc"), JSON.stringify(manifest, null, 2))
+}
+
+/** The manifest is the update system's only state; a torn write used to
+ *  strand it in the (formerly unrecoverable) corrupt path. Same tmp+rename
+ *  the version file got in v1.12.0. */
+function atomicWrite(path: string, content: string) {
+  writeFileSync(path + ".tmp", content)
+  renameSync(path + ".tmp", path)
 }
 
 /** True when .engram-update.jsonc exists (used to register /engram-update pseudo-command). */

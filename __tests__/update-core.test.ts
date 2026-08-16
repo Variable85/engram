@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { runEngramUpdate } from "../.opencode-plugin/update-core"
 import { readManifest } from "../.opencode-plugin/update"
@@ -64,6 +64,27 @@ describe("runEngramUpdate input validation", () => {
       expect(runEngramUpdate({ target: tmp, mode: "auto" })).toContain("Corrupt manifest")
       expect(runEngramUpdate({ target: tmp, mode: "per_file", decisions: [{ file: "skills/learn.md", action: "delete" }] })).toContain("Corrupt manifest")
     }
+  })
+
+  it("cleanup clears a corrupt-JSON manifest — the template's STEP-2 recovery path", () => {
+    writeFileSync(resolve(tmp, ".engram-update.jsonc"), "not-json}{")
+    const out = runEngramUpdate({ target: tmp, mode: "cleanup" })
+    expect(out).toContain("State cleaned")
+    expect(existsSync(resolve(tmp, ".engram-update.jsonc"))).toBe(false)
+  })
+
+  it("cleanup clears a WRONG-SHAPE manifest (the v1.12.0 regression: the shape gate made this unrecoverable)", () => {
+    writeFileSync(resolve(tmp, ".engram-update.jsonc"), JSON.stringify({ state: "pending", categories: null, remaining: [], applied: [] }))
+    const out = runEngramUpdate({ target: tmp, mode: "cleanup" })
+    expect(out).toContain("State cleaned")
+    expect(existsSync(resolve(tmp, ".engram-update.jsonc"))).toBe(false)
+  })
+
+  it("checkpoint writes the manifest atomically (no .tmp left behind)", () => {
+    runEngramUpdate({ target: tmp, mode: "checkpoint" })
+    expect(existsSync(resolve(tmp, ".engram-update.jsonc"))).toBe(true)
+    expect(existsSync(resolve(tmp, ".engram-update.jsonc.tmp"))).toBe(false)
+    expect(JSON.parse(readFileSync(resolve(tmp, ".engram-update.jsonc"), "utf-8")).state).toBe("in_progress")
   })
 
   it("valid decisions still work end to end", () => {

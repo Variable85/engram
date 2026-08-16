@@ -49,7 +49,7 @@
  * already deleted are simply not re-deleted (existsSync check is idempotent).
  */
 
-import { existsSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, unlinkSync, writeFileSync, renameSync } from "node:fs"
 import { resolve, sep } from "node:path"
 import { readManifest, saveManifest } from "./update.js"
 
@@ -126,6 +126,19 @@ export function runEngramUpdate(args: UpdateArgs): string {
   const manifestPath = resolve(args.target, ".engram-update.jsonc")
   const versionPath = resolve(args.target, ".engram-version.jsonc")
   const diffPath = resolve(args.target, ".engram-update.diff")
+
+  // cleanup is the template's STEP-2 recovery path for a manifest that
+  // cannot be read — so it must run BEFORE any gate that requires reading
+  // the manifest. v1.12.0's shape gate made corrupt-but-parseable state
+  // unrecoverable: every mode returned "Corrupt manifest: run
+  // /engram-update to clean up", which is the command the user had just
+  // run. Caught by the post-release review (§7.5).
+  if (args.mode === "cleanup") {
+    if (existsSync(versionPath)) unlinkSync(versionPath)
+    if (existsSync(manifestPath)) unlinkSync(manifestPath)
+    if (existsSync(diffPath)) unlinkSync(diffPath)
+    return "[engram] No pending updates. State cleaned. Restart to apply."
+  }
 
   let manifest = readManifest(args.target)
   if (!manifest) {
@@ -236,16 +249,11 @@ export function runEngramUpdate(args: UpdateArgs): string {
 
     case "checkpoint": {
       manifest.state = "in_progress"
-      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+      writeFileSync(manifestPath + ".tmp", JSON.stringify(manifest, null, 2))
+      renameSync(manifestPath + ".tmp", manifestPath)
       return `[engram] State set to in_progress. ${manifest.remaining.length} categories pending.`
     }
 
-    case "cleanup": {
-      if (existsSync(versionPath)) unlinkSync(versionPath)
-      if (existsSync(manifestPath)) unlinkSync(manifestPath)
-      if (existsSync(diffPath)) unlinkSync(diffPath)
-      return "[engram] No pending updates. State cleaned. Restart to apply."
-    }
 
     default:
       return "[engram] Unknown mode."
