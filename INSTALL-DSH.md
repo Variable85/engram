@@ -73,5 +73,8 @@ enter it once in the Web UI's Settings → Models. There are no bundled free mod
   (the shipped template says so in-line).
 - Verified keyless on 2026-08-16: skill discovery through the documented symlinks (all
   three skills in `skill.list` with correct metadata) and a clean fail-loud boot with the
-  nudge patch applied. Live keyed verification status is recorded in the release's
-  user-session report — trust that report, not this line, for what has actually run.
+  nudge patch applied. **A live keyed session has NOT been run yet** — hook firing inside a
+  session, the full learn loop, the subagent spawn, and sandbox prompts around
+  `~/.claude/learning` are exercised on every other platform but still owed here (the
+  release's user-session report records this debt). If you run one before we do, an issue
+  report — good or bad — closes that gap for everyone.
