@@ -8,6 +8,7 @@ import v2Default, {
   readUpdateSummary,
   resolveWorkspaceDirectory,
   registerHook,
+  extractionScope,
   UPDATE_TOOL_INPUT,
 } from "../.opencode-plugin/v2"
 
@@ -296,6 +297,43 @@ describe("setup — registrations against a recording ctx", () => {
     await expect(mkSetup()(undefined as any)).resolves.not.toThrow
     const cleanup = await mkSetup()({} as any)
     if (cleanup) await cleanup()
+  })
+})
+
+describe("extraction scope (second wrong-directory class: non-workspace locations)", () => {
+  it("refuses a location that owns no opencode config — the service root would fall through to the global dir", async () => {
+    // HOME is sandboxed so the assertion can SEE the global fallback: without
+    // the extractionScope guard, setup extracts into {HOME}/.config/opencode —
+    // the exact pollution the release e2e caught on a real machine. The first
+    // version of this test only checked the bare dir and stayed green with the
+    // guard reverted (the wrong write goes global, not local) — a fake check.
+    const bare = mkdtempSync(resolve(tmpdir(), "engram-v2-bare-"))
+    const fakeHome = mkdtempSync(resolve(tmpdir(), "engram-v2-home-"))
+    const realHome = process.env.HOME
+    process.env.HOME = fakeHome
+    try {
+      const { ctx, calls } = mkCtx(bare)
+      await createV2Setup({ runNudge: async () => "" })(ctx)
+
+      expect(existsSync(resolve(bare, ".opencode"))).toBe(false)
+      expect(existsSync(resolve(bare, "AGENTS.md"))).toBe(false)
+      expect(existsSync(resolve(fakeHome, ".config", "opencode", "AGENTS.md"))).toBe(false)
+      expect(existsSync(resolve(fakeHome, ".config", "opencode", "skills"))).toBe(false)
+      expect(calls.sessionHooks["context"]).toBeDefined()
+      expect(calls.shellHooks["create.before"]).toBeDefined()
+    } finally {
+      process.env.HOME = realHome
+      rmSync(bare, { recursive: true })
+      rmSync(fakeHome, { recursive: true })
+    }
+  })
+
+  it("allows a config-owning workspace and the global config dir itself", () => {
+    expect(extractionScope(tmp)).toBe(tmp)
+    const home = process.env.HOME || process.env.USERPROFILE || "/tmp"
+    const globalDir = resolve(home, ".config", "opencode")
+    expect(extractionScope(globalDir)).toBe(globalDir)
+    expect(extractionScope(null)).toBeNull()
   })
 })
 

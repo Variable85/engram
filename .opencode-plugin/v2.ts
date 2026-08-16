@@ -92,7 +92,11 @@
  * (older V2 SDK lines have no domain-level list() at all), the adapter goes
  * HOOKS-ONLY: nudge and shell-env still work (both can resolve per-call),
  * but nothing is extracted and no command files are written — a wrong-
- * directory write is strictly worse than a missing feature.
+ * directory write is strictly worse than a missing feature. The same rule
+ * applies one level up: the service also instantiates plugins for locations
+ * that are not the configuring project (its own root among them), so
+ * extraction additionally requires the location to own an opencode config
+ * file, or to be the global config dir itself (extractionScope()).
  *
  * Known V2 deltas (beta, re-verify at V2 GA)
  * ------------------------------------------
@@ -283,6 +287,27 @@ export async function resolveWorkspaceDirectory(ctx: any): Promise<string | null
   return null
 }
 
+
+/**
+ * Second wrong-directory class, caught by the release e2e: the background
+ * service instantiates plugins for locations beyond the configuring project
+ * (its own root among them). A config-less directory would fall through
+ * getExtractTarget's global fallback and extract Engram into the user's real
+ * ~/.config/opencode/ — which is how a project-only install polluted the
+ * global config during testing. So extraction requires the location to OWN
+ * an opencode config file (a project install always does — the plugins entry
+ * lives in that very file), or to BE the global config dir itself. Anything
+ * else gets hooks, not files.
+ */
+export function extractionScope(dir: string | null): string | null {
+  if (!dir) return null
+  const home = process.env.HOME || process.env.USERPROFILE || "/tmp"
+  const globalDir = resolve(home, ".config", "opencode")
+  if (resolve(dir) === globalDir) return dir
+  if (existsSync(resolve(dir, "opencode.json")) || existsSync(resolve(dir, "opencode.jsonc"))) return dir
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // setup
 // ---------------------------------------------------------------------------
@@ -336,11 +361,12 @@ export function createV2Setup(deps: V2SetupDeps = {}) {
         } catch {}
       }
 
-      if (dir) {
+      const extractDir = extractionScope(dir)
+      if (extractDir) {
         // Unconditional like V1 since v1.10.1 — selfExtract's own
         // .engram-version.jsonc guard makes it idempotent, and extraction is
         // what makes the command surface below legitimate.
-        const result = selfExtract(root, dir, getVERSION(root), undefined)
+        const result = selfExtract(root, extractDir, getVERSION(root), undefined)
         target = result.target
         const freshlyExtracted = result.freshlyExtracted
 
