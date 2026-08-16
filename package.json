@@ -28,7 +28,8 @@
     "learning",
     "fsrs",
     "spaced-repetition",
-    "pi-package"
+    "pi-package",
+    "dsh-plugin"
   ],
   "engines": {
     "opencode": ">=1.0.0 || >=0.0.0-0"
@@ -59,7 +60,9 @@
     "INSTALL-CODEX.md",
     "INSTALL-HERMES.md",
     "INSTALL-OPENCLAW.md",
-    "INSTALL-OPENCODE-V2.md"
+    "INSTALL-OPENCODE-V2.md",
+    "dsh",
+    "INSTALL-DSH.md"
   ],
   "repository": {
     "type": "git",

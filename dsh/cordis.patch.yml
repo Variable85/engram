@@ -1,0 +1,22 @@
+# Engram — DeepSeek Harness nudge patch
+# =====================================
+# Enables the harness's Claude Code hook bridge and points it at Engram's
+# stock SessionStart hook (the due-review nudge — at most two quiet lines,
+# silent when nothing is due). Engram's skills and instructions need no
+# patch at all: dsh discovers ~/.agents/skills natively, and the hook script
+# self-resolves its engine from its own location.
+#
+# Install: the bridge ships inside the dsh npm bundle, so the patch alone
+# is enough. Open ~/.dsh/profiles/<profile>/cordis.patch.yml (created on the
+# profile's first boot), REPLACE the trailing empty list `[]` with the block
+# below, and restart that profile. Appending after the `[]` is invalid YAML
+# and dsh will refuse to boot — it fails loud, so you'll see it immediately.
+# (Repeat per profile you use: headless, tui, web.)
+#
+# Replace both paths with your absolute home path (e.g. /Users/you/...) —
+# `~` is not expanded inside patch config strings.
+- id: engram-hooks
+  name: '@deepseek-ai/dsh-hooks-claude-code'
+  config:
+    configPath: /ABSOLUTE/HOME/.agents/engram/hooks/hooks.json
+    pluginRoot: /ABSOLUTE/HOME/.agents/engram
