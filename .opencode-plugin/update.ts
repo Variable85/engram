@@ -21,7 +21,7 @@
  * via node -e (see pseudo-command template in index.ts).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, copyFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, copyFileSync, lstatSync } from "node:fs"
 import { resolve, relative } from "node:path"
 import { parseFrontmatter } from "./parse-frontmatter.js"
 import { writeUpdateDiff } from "./diff.js"
@@ -206,6 +206,10 @@ export function applyUpdate(target: string, category: string, sources: string[])
     const src = resolve(m.source, relPath)
     const dest = resolve(target, relPath)
     if (!existsSync(src)) continue
+    // Same guard as selfExtract's transform loop: copyFileSync and
+    // writeFileSync both follow symlinks, and a symlinked dest points at a
+    // file that is not ours to overwrite.
+    try { if (lstatSync(dest).isSymbolicLink()) continue } catch {}
     mkdirSync(resolve(dest, ".."), { recursive: true })
     copyFileSync(src, dest)
     if (category === AGENTS_DIR) transformAgentAt(dest)

@@ -14,7 +14,7 @@
  * On fresh install, no manifest — bridge registers agents/commands/skills in config hook.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync, rmdirSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, unlinkSync, rmdirSync, lstatSync } from "node:fs"
 import { resolve, basename } from "node:path"
 import { execSync } from "node:child_process"
 import { parseFrontmatter } from "./parse-frontmatter.js"
@@ -385,7 +385,7 @@ function transformAgentForOpenCode(content: string): string {
   return `---\n${toYAML(newAttrs)}\n---\n\n${body.trimEnd()}\n`
 }
 
-const COMMANDS_DEF: Record<string, { description: string; template: string }> = {
+export const COMMANDS_DEF: Record<string, { description: string; template: string }> = {
   learn: {
     description:
       "Learn any topic properly — first-principles curriculum, generation-first tutoring, verified free recall, FSRS scheduling",
@@ -470,6 +470,12 @@ export function selfExtract(packageRoot: string, directory: string, version: str
       for (const file of readdirSync(agentsDestDir)) {
         if (!file.endsWith(".md")) continue
         const filePath = resolve(agentsDestDir, file)
+        // writeFileSync follows symlinks. A symlinked agent (a contributor
+        // checkout linking a target's agents/*.md to the canonical agents/
+        // tree) is by definition not an extracted copy, so it is never ours
+        // to transform — writing through the link would rewrite the files
+        // every other platform ships.
+        try { if (lstatSync(filePath).isSymbolicLink()) continue } catch { continue }
         const original = readFileSync(filePath, "utf-8")
         const transformed = transformAgentForOpenCode(original)
         writeFileSync(filePath, transformed)

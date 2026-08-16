@@ -1,5 +1,93 @@
 # Changelog
 
+## 1.12.0 — 2026-08-16 · OpenCode 2.0: a second entry point, one engine (#18)
+
+OpenCode 2.0 (the `opencode2` beta) replaced its plugin API and does not load V1 plugins —
+issue #18 (thanks, DanRioDev, for the unusually precise port plan). Engram now ships **both
+adapters in one package**; `opencode` and `opencode2` can run side by side against one
+install, one extracted tree, one learner state. The engine, skills, agents, and every other
+platform are untouched in this release.
+
+### Packaging
+
+- **`.opencode-plugin/v2.ts`** — the V2 adapter. Deliberately imports nothing from
+  `@opencode-ai/*`: the V2 SDK's `Plugin.define` is the identity function, so a plain
+  `{ id, setup }` object is a valid plugin, and the beta reshuffled its package exports
+  twice in one week (V1 API moved to `/v1`, promise API took the root). Every V2 domain is
+  feature-detected, both hook call forms of the beta SDK lines are supported, and every
+  hook and transform callback degrades to silence — an older beta loses features, never
+  crashes the host. setup returns a cleanup that disposes its registrations.
+- **One package name serves both engines.** V2's npm resolution probes a package's `server`
+  export subpath before the root, so `package.json` now exports `./server` → the V2 adapter
+  while `main` keeps serving V1. `"opencode-engram-learning"` in either config key does the
+  right thing. (Do not write `"pkg/v2"`-style entries — V2 never splits subpaths off config
+  strings, and npm-package-arg misparses that form as a GitHub repo spec.)
+- **Shared engine extracted, not duplicated:** `update-core.ts` (the deterministic
+  `engram_update` logic, now self-validating) and `update-command.ts` (the `/engram-update`
+  template) feed both entries, so the update procedure can never drift between V1 and V2.
+  V1's behavior is unchanged; its suite runs through the delegation untouched.
+
+### Behavior under V2 (differences a user can see)
+
+- The command surface is the same files the shared `selfExtract` has generated since
+  v1.10.x (`commands/`, V2's canonical discovery dir). V2 adds exactly one file of its own:
+  `/engram-update` as a generated command while an update is pending, removed — guarded by
+  its own H1, so a user's own file with that name is never touched — when resolved, with an
+  explicit `command.reload()` so it appears and disappears without a restart.
+- The update surface is re-checked **once per session**, not once per server boot: V2 runs
+  plugins inside a long-lived background service, and a version bump can land mid-life
+  (V1 running beside V2 extracts it into the shared target). Notification, command file,
+  and the `engram_update` tool all surface on the next session.
+- The update toast is gone under V2 — its plugin API has no toast surface. The
+  system-prompt notification (nudge + pending-update line, once per session — V1's cadence,
+  since V1 ran one process per session) remains.
+- Extracted agent files keep the V1 frontmatter (`tools:` object) so both engines can share
+  them; V2 treats `tools:` as legacy and the assessor's blindness rides on its prompt, as
+  it already does on OpenClaw.
+
+### The embarrassing parts, kept per protocol
+
+The first cut of the adapter took `process.cwd()` as the workspace — the V1 assumption. V2
+runs plugins inside a **background service shared across projects**, so cwd is the
+service's directory, and the end-to-end smoke test extracted Engram into the tester's real
+`~/.config/opencode/` instead of the project. Every unit test was green; only checking the
+global directory after the live boot caught it. The adapter now reads the workspace from
+the `location` wrapper V2 puts on every domain response (`agent.list` → `command.list`),
+and when **no** domain reports a location it goes hooks-only rather than guessing — a
+wrong-directory write is strictly worse than a missing feature.
+
+The pre-release adversarial review (three reviewers, extracted trees) then found what the
+first e2e could not: model-supplied tool input reached `runEngramUpdate` unvalidated under
+V2, and one malformed per-file decision (a missing `action`) was silently consumed from the
+manifest's skipped list — recorded KEPT, never refreshed, category drained, user told the
+update completed. update-core now validates its own input (message, never a throw, never a
+consumed entry). The same review caught `writeFileSync` following symlinks in the agent
+transform loop — in a contributor checkout that rewrites the canonical `agents/` files
+every other platform ships — now lstat-guarded at both write sites. And porting those
+guards onto a moved import line produced one more lesson: an un-asserted string replace
+no-oped, `lstatSync` stayed unimported, and the guard's own `catch { continue }` silently
+skipped every agent — caught only because main's install suite diffs real extractions.
+
+Two near-misses worth recording: `{ id, server }` alone is **rejected** by the V2 loader
+(the schema demands a setup/effect function — verified by running the actual loader schema,
+not by reading docs), and V2 plugin load failures are **silent** (a log-level warning), so
+a broken adapter shows nothing unless the user reads logs. Both shaped the design: separate
+entry point, zero SDK imports, verified against the shipping `opencode2 v0.0.0-next-17444`
+binary — whose bundled source maps, not the (lagging) docs, were the ground truth.
+
+### Tests
+
+164 → 199 vitest checks (35 new: V2 setup registrations, per-session update surfacing,
+workspace-directory resolution incl. the service-cwd regression and the hooks-only
+fallback, H1-guarded removal, update-core input validation, symlink write-through guards,
+SDK-drift tolerance, schema parity across the three input-schema copies). Every
+load-bearing new check mutation-tested (fix reverted → that check fails). `selftest`
+unchanged at 307 — no engine diff, so no new fuzz or numbers surface this release.
+End-to-end verified on `opencode2 v0.0.0-next-17444`: plugin active, fresh install
+self-extracts into the project, command surface live in the same boot, `AGENTS.md`
+written, zero writes outside the workspace.
+
+
 ## 1.11.2 — 2026-08-11 · The engine stopped taking the grader's word for it
 
 An outside report ([#17](https://github.com/nagisanzenin/engram/issues/17), thanks
