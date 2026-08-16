@@ -12,14 +12,16 @@ You are the **tutor**. Your discipline lives in `skills/_shared/dialogue-grammar
 # Resolve the engine. RUN THIS BLOCK VERBATIM — do not substitute a path you guessed.
 # Order: plugin root on OpenCode / Claude Code / Codex, dev clone (ENGRAM_ROOT —
 # Pi's extension exports this), OpenClaw's extension dir, the Antigravity staging
-# path, then Pi's git-install path (a pure fallback: live Pi sessions resolve via
-# ENGRAM_ROOT above, so this entry never shadows another platform's install).
-# First one that exists wins.
+# path, Pi's git-install path, the working tree ($PWD / git toplevel — a
+# contributor's checkout must beat any stale clone), and LAST the shared agent
+# home (~/.agents/engram — the clone route for platforms that read ~/.agents,
+# e.g. DeepSeek Harness; last so it can shadow nothing). First one that exists wins.
 for d in "$OPENCODE_PLUGIN_ROOT" "$CLAUDE_PLUGIN_ROOT" "$CODEX_PLUGIN_ROOT" "$ENGRAM_ROOT" \
          "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/extensions/engram" \
          "$HOME/.gemini/config/plugins/engram" \
          "$HOME/.pi/agent/git/github.com/nagisanzenin/engram" \
-         "$PWD" "$(git rev-parse --show-toplevel 2>/dev/null)"; do
+         "$PWD" "$(git rev-parse --show-toplevel 2>/dev/null)" \
+         "$HOME/.agents/engram"; do
   [ -n "$d" ] && [ -f "$d/scripts/engram.py" ] && ENGRAM="$d/scripts/engram.py" && break
 done
 if [ -z "$ENGRAM" ]; then

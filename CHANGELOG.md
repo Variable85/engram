@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.13.0 — 2026-08-16 · the eighth platform (DeepSeek Harness), and the thinnest port yet
+
+DeepSeek Harness (`dsh`, DeepSeek's everything-is-a-plugin agent harness, developer
+preview) becomes Engram's eighth platform — with **zero adapter code**. dsh natively reads
+directory-bundle `SKILL.md` skills from `~/.agents/skills` (Engram's exact format),
+discovers `AGENTS.md`, bridges unmodified Claude Code hooks, and ships a fresh-context
+subagent tool. The port is a clone, three symlinks, one optional patch block, and one new
+candidate in the skills' engine-resolution waterfall.
+
+### Packaging
+
+- **Engine waterfall** gains `$HOME/.agents/engram` — the shared agent home, phrased as a
+  convention path so any platform that reads `~/.agents` inherits it, not as a dsh-specific
+  branch (§5.7 doctrine: capability paths, never platform names). It sits LAST, behind
+  `$PWD`/git-toplevel — the review built the machine where an earlier position silently
+  shadowed a contributor's checkout. A new consistency suite pins the candidate list
+  byte-identical across all three skills, the order (`$PWD` ahead of the clone), and the
+  fail-closed guard in every skill. (An earlier byte-identical draft of that test caught
+  pre-existing comment drift between the copies; the shipped test deliberately pins only
+  the candidate list — comments legitimately differ per skill.)
+- **`hooks/session-start-dsh.sh` + `dsh/hooks.json` + `dsh/cordis.patch.yml`** — the nudge
+  for dsh's Claude Code hook bridge. The wrapper emits the JSON `additionalContext` shape
+  (the Hermes precedent) because dsh discards plain SessionStart stdout; the patch uses
+  the loader's *insert* form and documents the two-package `dsh plugin add` prerequisite.
+  Claude Code's and Codex's own hook files are byte-unchanged.
+- INSTALL-DSH.md, README row + sub-note (eight platforms), `dsh-plugin` npm keyword,
+  `dsh/` + INSTALL-DSH.md in the tarball.
+
+### The embarrassing parts, kept per protocol
+
+The nudge this release first shipped could not deliver a single character, twice over —
+and the evidence of failure had been read as success. dsh's bridge consumes only the JSON
+`hookSpecificOutput.additionalContext` shape (plain SessionStart stdout is discarded — a
+documented dsh limitation nobody re-read), and the bridge package is not in the dsh npm
+bundle's dependency closure at all: the patch entry naming it was an *override* targeting
+a row that exists in no layer, which the loader skips with a warning — so the recorded
+"clean boot" was the failure mode itself wearing the success signal. The adversarial
+review proved both from dsh's source and this machine's own session records, keylessly.
+The fixes: a JSON-emitting wrapper, the loader's *insert* form (which fails loud on a
+missing package), the honest two-package `dsh plugin add` prerequisite, and a verification
+instruction that checks for a hook EVENT instead of a clean start. Smaller kin, same
+lesson: `cat >>` after the profile template's trailing `[]` is invalid YAML (that one dsh
+does refuse loudly), and the first waterfall-comment amendment was an un-asserted string
+replace that silently no-op'd — the same trap this repo wrote into its release memory one
+version ago, caught this time by the §5.7 blind reader.
+
+### Verification
+
+Keyless, against the real npm `dsh` 0.1.0-rc.5 (2026-08-16): all three skills discovered
+through the documented symlink flow — in `skill.list` AND in a live session's
+`<available_skills>` catalog — and the complete nudge chain proven end to end: insert
+patch → bridge loads → SessionStart fires at agent start (marker probe) → the wrapper's
+JSON context is injected into the session inbox (`agent/inbox/spliced` carries the probe
+string). Still owed, recorded in the user-session report: a model-driven learn loop, the
+subagent spawn route, and sandbox behavior around `~/.claude/learning`. 215 vitest checks
+(+4); `selftest` unchanged at 307 — no engine diff.
+
+
 ## 1.12.1 — 2026-08-16 · what the post-release review caught
 
 §7.5 ran against shipped v1.12.0 within the hour and earned its place again. One HIGH,
