@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { selfExtract } from "../.opencode-plugin/install"
+import { runEngramUpdate } from "../.opencode-plugin/update-core"
 
 /**
  * Issue #20 — the engine reads gold/assessor-gold.jsonl and
@@ -70,5 +71,36 @@ describe("issue #20 — selfExtract ships gold/, experiments/, docs/", () => {
     expect(manifest.categories.gold.skipped).toContain("gold/assessor-gold.jsonl")
     expect(manifest.categories.experiments.skipped).toContain("experiments/interleaving-vs-blocked.json")
     expect(manifest.categories.docs.skipped).toContain("docs/05-affective-layers.md")
+  })
+
+  it("auto update deletes stale copies and the NEXT extract restores every one", () => {
+    // The invariant behind auto mode: every category writeUpdateManifest can
+    // put in skipped[] must be restorable — DIRS for the six merged dirs,
+    // generateCommands for commands/. A category outside that set would have
+    // its files deleted by auto and never re-created (bug class #2, silent
+    // data loss). This drives the full round-trip rather than asserting the
+    // lists match, so a future category addition without a restore path
+    // fails here.
+    const target = resolve(tmp, ".opencode")
+    for (const [dir, file] of [
+      ["skills", "SKILL.md"], ["agents", "agent.md"], ["scripts", "engram.py"],
+      ["gold", "assessor-gold.jsonl"], ["experiments", "interleaving-vs-blocked.json"],
+      ["docs", "05-affective-layers.md"],
+    ] as const) {
+      mkdirSync(resolve(target, dir), { recursive: true })
+      writeFileSync(resolve(target, dir, file), "stale-old-copy")
+    }
+    writeFileSync(resolve(target, ".engram-version.jsonc"), JSON.stringify({ version: "1.13.1" }))
+
+    selfExtract(pkg, tmp, "1.13.2")
+    const manifest = JSON.parse(readFileSync(resolve(target, ".engram-update.jsonc"), "utf-8"))
+    const allSkipped: string[] = Object.values(manifest.categories).flatMap((c: any) => c.skipped)
+    expect(allSkipped.length).toBeGreaterThanOrEqual(6)
+
+    runEngramUpdate({ target, mode: "auto" })
+    for (const f of allSkipped) expect(existsSync(resolve(target, f)), `${f} deleted`).toBe(false)
+
+    selfExtract(pkg, tmp, "1.13.2")
+    for (const f of allSkipped) expect(existsSync(resolve(target, f)), `${f} restored`).toBe(true)
   })
 })
