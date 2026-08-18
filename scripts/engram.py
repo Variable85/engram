@@ -2510,6 +2510,11 @@ def _exp_metric_floor(exp):
     reader then took `max(..., EXPERIMENT_MIN_PER_ARM)`, so 8 and 10 could never bind and one
     key published two numbers for one experiment (bug class #7)."""
     m = exp.get("metric") if isinstance(exp, dict) else None
+    # a hand-edited experiments.json can hold a dict/list metric — unhashable, and
+    # .get() raised straight through `experiment status`, a READ path (§4.7, found by
+    # the v1.14 re-fuzz). Non-string metrics take the default floor and degrade.
+    if not isinstance(m, str):
+        return EXPERIMENT_MIN_PER_ARM
     return EXPERIMENT_METRIC_MIN.get(m, EXPERIMENT_MIN_PER_ARM)
 
 def _exp_min_per_arm(exp):
@@ -10774,6 +10779,21 @@ def cmd_selftest(_args):
                 and "ruler changed" in gh["stamp"])
     check("a gold-set change expires the grader badge (stale-gold, canary-relicensable)",
           fresh(_stale_gold))
+
+    # -- §4.7: `experiment status` is a READ path and must degrade on a hand-edited file —
+    #    an unhashable metric (dict/list) reached EXPERIMENT_METRIC_MIN.get() and raised
+    #    (found by the v1.14 re-fuzz, after the release's "last" commit, as §4.7 orders) --
+    def _exp_status_degrades(h):
+        write_json(p("experiments.json"), [
+            {"id": "x1", "status": "active", "arms": ["a", "b"],
+             "metric": {"weird": 1}, "min_per_arm": [3], "assignments": None}])
+        try:
+            _capture(cmd_experiment, _ns(action="status"))
+        except SystemExit:
+            pass                     # a guarded die() is an acceptable degrade
+        return True                  # any other exception fails the check by raising
+    check("experiment status survives an unhashable metric in a hand-edited file",
+          fresh(_exp_status_degrades))
 
     # -- the node_kind STAMP: written at grading time, immune to later reclassification --
     def _kind_stamp(h):

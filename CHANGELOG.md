@@ -97,10 +97,17 @@ findings, all fixed before ship):
 - P18's gate width was stated at three different sizes across five files; unified at
   four, and the preset now warns that `transfer_fired` settles in weeks by design.
 
-**Selftest 308 → 314** (every new check mutation-tested per RELEASE_PROTOCOL §4.5):
+**And what the §4.7 re-fuzz caught after the "last" commit, exactly as the protocol
+predicts:** an unhashable `metric` in a hand-edited experiments.json crashed
+`experiment status` — a read path — straight through `_exp_metric_floor`'s dict lookup
+(pre-existing, exposed by fuzzing the sub-action; 600 states, 2 seeds, now 0 crashes).
+Guarded at the gate, locked in with a mutation-tested check.
+
+**Selftest 308 → 315** (every new check mutation-tested per RELEASE_PROTOCOL §4.5):
 contrast/interactivity warn-and-drop; the non-list-cases crash path; `--extend`
 non-mutation; `contrasts_with` in the due payload dropping ghost/retired/self/new
-siblings; `alignment_quality` literal validation; `stale-gold` badge expiry.
+siblings; `alignment_quality` literal validation; `stale-gold` badge expiry;
+`experiment status` degrading on a type-corrupt file.
 
 **Upstream corrections (found by this release's gauntlet)**
 
