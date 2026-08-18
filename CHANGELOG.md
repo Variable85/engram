@@ -36,12 +36,47 @@ end to end. Both reproduced here on a clean opencode 1.18.4 before fixing.
   promised "engram-docs — resolve to the extracted copy in `.opencode/`" — a reference
   that had pointed at nothing since v0.x.
 
+**What the pre-release review caught in the fix itself** (§4.5's rule that a fix is a diff
+and gets the full gate, proven again):
+
+- **The first cut of the combined entry would have killed V2 the way v1.13.0 killed V1.**
+  `entry.ts` statically imported `index.ts`, which statically imported `update-tool.ts` —
+  whose top-level `import { tool } from "@opencode-ai/plugin"` + module-scope `tool()`
+  call put a hard SDK link into the V2 load path. The V2 adapter's own design rule
+  ("ZERO @opencode-ai/* imports — the beta reshuffled its root export once already") was
+  voided on the only path V2 actually takes, and the new test suite couldn't see it
+  because the devtree always has the SDK installed. An independent reviewer reproduced
+  both failure modes under Bun (SDK absent; SDK root without `tool` — ESM link errors
+  that fire before any try/catch). `engramUpdateTool` now loads lazily inside `server()`,
+  which only V1 calls; the graph is pinned by a walk-the-imports absence check that was
+  mutation-tested in both directions (re-adding the static import fails it; so does
+  introducing a direct SDK import in entry.ts).
+- **Every version bump told upgraders their agents were "preserved, needs decision" —
+  and showed them the extraction transform played backwards.** The extracted agents can
+  never byte-match the packaged source (extraction injects `mode: subagent`,
+  `hidden: true`, tools map), so the raw compare in `diffCategory` manifested all three
+  agents on every bump, and `.engram-update.diff` presented the new version as *removing*
+  the subagent mode and tool restrictions. Pre-existing since the update system shipped;
+  fixed by comparing (and diffing) through the same transform extraction applies. An
+  existing test had silently pinned the buggy behavior — its version-bump manifest only
+  existed because agents always differed — and had to have a genuine difference added to
+  its fixture.
+- **`docs/` extraction was scoped to what the skills actually cite.** Top-level files
+  only: `docs/release-audits/` and `docs/user-sessions/` are internal process records no
+  skill references, and the AGENTS.md block describes the reference as "foundations,
+  architecture, roadmap". The shallow rule applies to both the extraction copy and the
+  manifest walk (a shared set — if they disagreed, every bump would manifest files
+  extraction never places). `DIRS` is now *derived* from the manifest category list, so a
+  future category can never be added whose files auto-update deletes and extraction
+  cannot restore — the invariant is also pinned by a delete-then-restore round-trip test.
+
 **Verification** — live on opencode 1.18.4 (XDG-isolated): registry 1.13.1 reproduces the
-startup error verbatim; the patched package loads, extracts all six directories, and the
-extracted tree passes 307/307 (scripts-only tree: 297/307, matching the report). Selftest
-delta: none (307 → 307 — engine untouched but for the version constant); vitest 215 → 224,
-all nine new checks mutation-tested (each fails when its own fix is reverted, including
-the two exports-map regressions).
+startup error verbatim; the fixed package loads, extracts all six directories (docs
+shallow), and the extracted tree passes 307/307 (scripts-only tree: 297/307, matching the
+report). The combined entry was also imported under Bun with no SDK and with a reshuffled
+SDK — both load `{ id, server, setup }`. Selftest delta: none (307 → 307 — engine
+untouched but for the version constant); vitest 215 → 229, all fourteen new checks
+mutation-tested (each fails when its own fix is reverted).
 
 §7.5 ran against shipped v1.13.0 and found what every pre-release gate had walked past.
 Patched immediately per protocol.
