@@ -49,8 +49,8 @@
  * already deleted are simply not re-deleted (existsSync check is idempotent).
  */
 
-import { existsSync, unlinkSync, writeFileSync, renameSync } from "node:fs"
-import { resolve, sep } from "node:path"
+import { existsSync, unlinkSync, writeFileSync, renameSync, lstatSync, realpathSync } from "node:fs"
+import { resolve, sep, dirname } from "node:path"
 import { readManifest, saveManifest } from "./update.js"
 
 export type UpdateMode = "auto" | "per_file" | "keep_as_is" | "skip" | "checkpoint" | "cleanup"
@@ -79,6 +79,34 @@ function isWithinTarget(target: string, filePath: string): boolean {
   const targetDir = resolve(target) + sep
   const resolved = resolve(target, filePath)
   return resolved.startsWith(targetDir)
+}
+
+/**
+ * Deletes a manifest-listed file, refusing symlinks and symlinked parents.
+ * isWithinTarget above is LEXICAL — resolve() does not follow links — so a
+ * category directory that is itself a symlink (the contributor-checkout
+ * pattern install.ts describes) would route the unlink outside the target
+ * and delete a file the manifest never described. Same rule as applyUpdate,
+ * selfExtract's transform loop, and syncUpdateCommandV2: a linked path is
+ * by definition not our extracted copy, so it is never ours to delete.
+ * Returns true only when the file was actually unlinked.
+ */
+function safeUnlink(target: string, relFile: string): boolean {
+  const filePath = resolve(target, relFile)
+  try {
+    if (lstatSync(filePath).isSymbolicLink()) return false
+  } catch {
+    return false // absent
+  }
+  try {
+    const realParent = realpathSync(dirname(filePath))
+    const realTarget = realpathSync(resolve(target))
+    if (realParent !== realTarget && !realParent.startsWith(realTarget + sep)) return false
+  } catch {
+    return false
+  }
+  unlinkSync(filePath)
+  return true
 }
 
 const MODES: readonly UpdateMode[] = ["auto", "per_file", "keep_as_is", "skip", "checkpoint", "cleanup"]
@@ -160,11 +188,7 @@ export function runEngramUpdate(args: UpdateArgs): string {
       for (const diff of Object.values(manifest.categories)) {
         for (const file of diff.skipped) {
           if (!isWithinTarget(args.target, file)) continue
-          const filePath = resolve(args.target, file)
-          if (existsSync(filePath)) {
-            unlinkSync(filePath)
-            deleted++
-          }
+          if (safeUnlink(args.target, file)) deleted++
         }
       }
       if (existsSync(versionPath)) unlinkSync(versionPath)
@@ -179,6 +203,7 @@ export function runEngramUpdate(args: UpdateArgs): string {
       }
 
       const results: string[] = []
+      let anyDeleted = false
       for (const d of args.decisions) {
         // Invalid decisions are reported and MUST NOT fall through to the
         // skipped[] filter below — consuming the entry would tell the user
@@ -200,11 +225,13 @@ export function runEngramUpdate(args: UpdateArgs): string {
 
         if (d.action === "delete") {
           const filePath = resolve(args.target, d.file)
-          if (existsSync(filePath)) {
-            unlinkSync(filePath)
-            results.push(`DELETED ${d.file}`)
-          } else {
+          if (!existsSync(filePath)) {
             results.push(`SKIP ${d.file}: already deleted`)
+          } else if (safeUnlink(args.target, d.file)) {
+            results.push(`DELETED ${d.file}`)
+            anyDeleted = true
+          } else {
+            results.push(`SKIP ${d.file}: symlinked — not ours to delete`)
           }
         } else {
           results.push(`KEPT ${d.file}`)
@@ -231,6 +258,18 @@ export function runEngramUpdate(args: UpdateArgs): string {
         if (existsSync(diffPath)) unlinkSync(diffPath)
         return `[engram] All files processed.\n${results.join("\n")}\n\nRestart OpenCode or reload plugins.`
       }
+
+      // A checkpoint that deleted files must ALSO drop the version guard:
+      // selfExtract early-returns while it matches, so the deletions would
+      // otherwise persist across restarts until the update completes — for
+      // gold/ and experiments/ that is a silently degraded engine (the gold
+      // audit runs against an empty set and exits 0), issue #20's exact
+      // symptom re-entered through the update flow. With the guard gone the
+      // next session re-extracts: deleted files return as the NEW version,
+      // preserved files are untouched (copyMissing never overwrites), and
+      // the manifest — written only on a version bump, which a guardless
+      // extract is not — survives for the remaining decisions.
+      if (anyDeleted && existsSync(versionPath)) unlinkSync(versionPath)
 
       saveManifest(args.target, manifest)
       return `[engram] Checkpoint saved.\n${results.join("\n")}\n\nRemaining: ${manifest.remaining.join(", ")}. Continue with /engram-update.`

@@ -86,10 +86,17 @@ and writes the `AGENTS.md` block V2 discovers natively.
 
 ## Verified against the real beta
 
-Smoke-tested end to end on `opencode2 v0.0.0-next-17444`: plugin listed as active,
-self-extraction into the project (`commands/` + skills + agents + scripts),
-`AGENTS.md` written, nothing leaked into `~/.config/opencode/` from a project workspace, and
-`npx vitest run` green (206 checks; the pre-existing V1 tests run unmodified).
+Smoke-tested end to end on `opencode2 v0.0.0-next-17444` (v1.12.0, the release that added
+V2): plugin listed as active, self-extraction into the project, `AGENTS.md` written,
+nothing leaked into `~/.config/opencode/` from a project workspace, and `npx vitest run`
+green. Since then the extraction has grown to six directories (v1.13.2 added `gold/`,
+`experiments/`, top-level `docs/`) and the suite to 229 checks.
+
+The v1.13.2 combined entry was verified against the V2 loader's *source* (the
+`PluginModule` schema requires `id` + `setup` and tolerates extra keys) and imported
+under Bun with the SDK absent and with a reshuffled SDK root — both load — but has not
+been re-smoke-tested under a live `opencode2`; if it misbehaves there, issue #18 tracks
+V2 support.
 
 One V2-specific behavior worth knowing: V2 runs plugins inside a background service shared
 across projects, so Engram never trusts `process.cwd()` — it asks the plugin API for the

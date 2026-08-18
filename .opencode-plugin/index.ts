@@ -81,7 +81,8 @@
  * -------------------------
  *
  * On version bump, selfExtract writes .engram-update.jsonc with a per-category
- * diff (skills, agents, scripts, commands — files added vs preserved).
+ * diff (skills, agents, scripts, commands, gold, experiments, docs — files
+ * added vs preserved).
  *
  * Notification (session-start.ts):
  *   system.transform — injects "Updates Engram Available!" + "Run

@@ -3589,15 +3589,29 @@ def load_gold(override=None):
         bundled_sids, local_sids = set(), set()
         source, modified = os.path.abspath(override), True    # not the shipped ground truth
     else:
-        bundled = read_jsonl(os.path.join(_plugin_root(), "gold", "assessor-gold.jsonl"))
+        bundled_path = os.path.join(_plugin_root(), "gold", "assessor-gold.jsonl")
+        bundled = read_jsonl(bundled_path)
         local = read_jsonl(p("gold", "local-gold.jsonl"))
         bundled_sids = {it["sid"] for it in bundled if _valid_gold_item(it)}
         local_sids = {it["sid"] for it in local if _valid_gold_item(it)}
         raw = bundled + local
-        source, modified = "bundled:gold/assessor-gold.jsonl", bool(local_sids)
+        # "bundled" alone is not enough provenance on platforms that EXTRACT the
+        # package (opencode selfExtract, since v1.13.2): the extracted copy is
+        # pinned by never-overwrite semantics, so the file beside the engine can
+        # lag the engine by any number of releases — and an audit would stamp a
+        # years-old ground truth as this release's shipped set. Pin the stamp to
+        # the FILE, not the path: sha256 of the actual bytes, so any skew is
+        # checkable against the repo. (v1.13.2 review finding — the label class:
+        # a provenance field that cannot express staleness will one day lie.)
+        try:
+            with open(bundled_path, "rb") as fh:
+                gold_sha = hashlib.sha256(fh.read()).hexdigest()[:8]
+        except OSError:
+            gold_sha = "absent"
+        source, modified = "bundled:gold/assessor-gold.jsonl@" + gold_sha, bool(local_sids)
         if modified:
-            source = ("bundled + gold/local-gold.jsonl (%d re-adjudicated, %d added)"
-                      % (len(local_sids & bundled_sids), len(local_sids - bundled_sids)))
+            source = ("bundled@%s + gold/local-gold.jsonl (%d re-adjudicated, %d added)"
+                      % (gold_sha, len(local_sids & bundled_sids), len(local_sids - bundled_sids)))
     items, skipped = {}, 0
     for it in raw:
         if _valid_gold_item(it):
@@ -8723,6 +8737,29 @@ def cmd_selftest(_args):
                         for it in _capture_json(cmd_gold, _ns())))
     check("a local gold set that RE-ADJUDICATES the answer is recorded, never passed off as bundled",
           fresh(_local_gold_cannot_certify_silently))
+
+    # -- the bundled-gold provenance pins the FILE, not just the path --
+    # Platforms that EXTRACT the package (opencode selfExtract, v1.13.2) pin the extracted
+    # gold file with never-overwrite semantics, so it can lag the engine by releases while
+    # the audit stamps it as the shipped ground truth. The stamp must therefore be derived
+    # from the file's BYTES — this check recomputes the hash independently and demands the
+    # engine's stamp match it, so a constant string (the old behavior) cannot pass.
+    def _gold_provenance_pins_the_file(h):
+        gold_path = os.path.join(_plugin_root(), "gold", "assessor-gold.jsonl")
+        with open(gold_path, "rb") as fh:
+            expect = hashlib.sha256(fh.read()).hexdigest()[:8]
+        _, meta = load_gold()
+        if meta["source"] != "bundled:gold/assessor-gold.jsonl@" + expect:
+            return False
+        # …and the stamp survives onto the modified-path label too, so a
+        # re-adjudicated run still says WHICH bundled file it started from.
+        os.makedirs(p("gold"), exist_ok=True)
+        with open(p("gold", "local-gold.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps(_gitem("mine_02", "partial")) + "\n")
+        _, meta2 = load_gold()
+        return "bundled@" + expect in meta2["source"]
+    check("the bundled-gold provenance pins the FILE (sha of bytes), not just the path",
+          fresh(_gold_provenance_pins_the_file))
 
     # -- a grader may not mark its own homework twice and keep the better score --
     # The mirror of the dropped-sid bug: `out[sid] = grade` was LAST-WINS, so a grader that got

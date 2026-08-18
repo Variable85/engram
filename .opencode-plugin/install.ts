@@ -460,7 +460,7 @@ function generateCommands(target: string, log: (msg: string) => void) {
  * Main extraction entry point. Idempotent via .engram-version.jsonc guard.
  *
  * 1. Version check → skip if same
- * 2. copyMissing skills/, agents/, scripts/ (new files only)
+ * 2. copyMissing every DIRS category (new files only; docs/ top-level only)
  * 3. Transform agents to OpenCode YAML (mode: subagent, hidden: true)
  * 4. Generate AGENTS.md (versioned marker block), command/ (always overwritten)
  * 5. Write .engram-version.jsonc with version + previous

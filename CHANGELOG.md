@@ -69,14 +69,43 @@ and gets the full gate, proven again):
   extraction never places). `DIRS` is now *derived* from the manifest category list, so a
   future category can never be added whose files auto-update deletes and extraction
   cannot restore — the invariant is also pinned by a delete-then-restore round-trip test.
+- **A checkpointed per-file update left the deleted files deleted, across restarts,
+  until the update completed.** The second reviewer reproduced it end to end: delete
+  `gold/assessor-gold.jsonl` in a per-file pass, leave the other categories for later,
+  and the version guard kept `selfExtract` early-returning — so the engine ran from a
+  holed tree indefinitely, the gold audit reported an empty set and *exited 0*, and the
+  only nag said "run /engram-update to continue". Issue #20's symptom, re-entered
+  through the update flow built to deliver its fix. A deleting checkpoint now drops the
+  version guard, so the next session's extract restores every deleted file as the new
+  version while never-overwrite semantics keep the preserved ones; the manifest (written
+  only on a version bump) survives for the remaining decisions. An existing test had
+  pinned the buggy behavior — asserting the guard *survives* a deleting checkpoint — and
+  was corrected.
+- **The update flow's delete paths could escape the target through a symlinked category
+  directory.** `isWithinTarget` is lexical (`resolve` does not follow links), and unlike
+  every other write path in the codebase, `auto`/`per_file` had no symlink guard — the
+  reviewer verified an unlink through a symlinked `docs/` deletes the real file outside
+  the target. Both paths now go through `safeUnlink`: refuse a symlinked file, refuse a
+  parent whose realpath leaves the target. The same rule the copy paths have carried
+  since v1.12.0, finally applied to the deletes.
+- **The bundled-gold provenance now pins the file, not just the path** (engine, +1
+  selftest check, 307 → 308). On extracting platforms the never-overwrite semantics can
+  pin `gold/assessor-gold.jsonl` to an old release while the engine moves on — and the
+  audit would stamp `bundled:gold/assessor-gold.jsonl` as though it were this release's
+  shipped ground truth. The stamp now carries a sha of the actual bytes
+  (`bundled:gold/assessor-gold.jsonl@<sha8>`, and `bundled@<sha8> + local-gold…` on the
+  re-adjudicated path), so skew is checkable against the repo. The new check recomputes
+  the hash independently and fails on a constant string (mutation-tested).
 
 **Verification** — live on opencode 1.18.4 (XDG-isolated): registry 1.13.1 reproduces the
 startup error verbatim; the fixed package loads, extracts all six directories (docs
 shallow), and the extracted tree passes 307/307 (scripts-only tree: 297/307, matching the
 report). The combined entry was also imported under Bun with no SDK and with a reshuffled
-SDK — both load `{ id, server, setup }`. Selftest delta: none (307 → 307 — engine
-untouched but for the version constant); vitest 215 → 229, all fourteen new checks
-mutation-tested (each fails when its own fix is reverted).
+SDK — both load `{ id, server, setup }`. Selftest delta: 307 → 308 (the gold-provenance
+pin; the engine is otherwise untouched but for the version constant); vitest 215 → 231.
+Every new check was mutation-tested — thirteen mutations, each killed by exactly the
+check written for it, including both directions of the SDK-absence check (re-adding the
+static import, and introducing a fresh one).
 
 §7.5 ran against shipped v1.13.0 and found what every pre-release gate had walked past.
 Patched immediately per protocol.

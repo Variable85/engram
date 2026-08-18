@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { tmpdir } from "node:os"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { symlinkSync } from "node:fs"
 import { selfExtract } from "../.opencode-plugin/install"
 import { runEngramUpdate } from "../.opencode-plugin/update-core"
 
@@ -102,6 +103,67 @@ describe("issue #20 — selfExtract ships gold/, experiments/, docs/", () => {
 
     selfExtract(pkg, tmp, "1.13.2")
     for (const f of allSkipped) expect(existsSync(resolve(target, f)), `${f} restored`).toBe(true)
+  })
+
+  it("a checkpointed per-file DELETE heals on the next extract — never a hole across restarts", () => {
+    // Review finding (MED-HIGH): per_file deleted the file, checkpointed with
+    // categories remaining, and left the version guard in place — so
+    // selfExtract early-returned forever and gold/ stayed empty across
+    // restarts while the gold audit ran against nothing and exited 0
+    // (issue #20's symptom re-entered through the update flow).
+    const target = resolve(tmp, ".opencode")
+    selfExtract(pkg, tmp, "1.13.2")
+    writeFileSync(resolve(target, ".engram-version.jsonc"), JSON.stringify({ version: "1.13.1" }))
+    // Make gold AND scripts differ so the manifest has two categories pending.
+    writeFileSync(resolve(target, "gold", "assessor-gold.jsonl"), "old-gold\n")
+    writeFileSync(resolve(target, "scripts", "engram.py"), "old-engine")
+    selfExtract(pkg, tmp, "1.13.2")
+
+    const out = runEngramUpdate({ target, mode: "per_file", decisions: [
+      { file: "gold/assessor-gold.jsonl", action: "delete" },
+    ] })
+    expect(out).toContain("Checkpoint saved")
+    expect(existsSync(resolve(target, "gold", "assessor-gold.jsonl"))).toBe(false)
+    // The heal: the version guard must be gone, so the next session start…
+    expect(existsSync(resolve(target, ".engram-version.jsonc"))).toBe(false)
+    selfExtract(pkg, tmp, "1.13.2")
+    // …restores the deleted file with the NEW content, keeps the preserved one,
+    // and the manifest survives for the remaining decision.
+    expect(readFileSync(resolve(target, "gold", "assessor-gold.jsonl"), "utf-8")).toBe('{"id":"g_001"}\n')
+    expect(readFileSync(resolve(target, "scripts", "engram.py"), "utf-8")).toBe("old-engine")
+    const manifest = JSON.parse(readFileSync(resolve(target, ".engram-update.jsonc"), "utf-8"))
+    expect(manifest.remaining).toContain("scripts")
+  })
+
+  it("delete paths refuse a symlinked category dir — the unlink must never escape the target", () => {
+    // Review finding: isWithinTarget is lexical; a symlinked docs/ (the
+    // contributor-checkout pattern) routed unlinkSync to the real file
+    // outside the target.
+    const target = resolve(tmp, ".opencode")
+    mkdirSync(target, { recursive: true })
+    const outside = resolve(tmp, "real-docs")
+    mkdirSync(outside, { recursive: true })
+    writeFileSync(resolve(outside, "05-affective-layers.md"), "the real file")
+    symlinkSync(outside, resolve(target, "docs"))
+    writeFileSync(resolve(target, ".engram-update.jsonc"), JSON.stringify({
+      from: "1.13.1", to: "1.13.2", source: pkg, state: "pending", applied: [],
+      remaining: ["docs"],
+      categories: { docs: { added: [], skipped: ["docs/05-affective-layers.md"] } },
+    }))
+
+    runEngramUpdate({ target, mode: "auto" })
+    expect(existsSync(resolve(outside, "05-affective-layers.md")), "auto escaped").toBe(true)
+
+    writeFileSync(resolve(target, ".engram-update.jsonc"), JSON.stringify({
+      from: "1.13.1", to: "1.13.2", source: pkg, state: "pending", applied: [],
+      remaining: ["docs"],
+      categories: { docs: { added: [], skipped: ["docs/05-affective-layers.md"] } },
+    }))
+    const out = runEngramUpdate({ target, mode: "per_file", decisions: [
+      { file: "docs/05-affective-layers.md", action: "delete" },
+    ] })
+    expect(existsSync(resolve(outside, "05-affective-layers.md")), "per_file escaped").toBe(true)
+    expect(out).toContain("not ours to delete")
   })
 
   it("docs/ extracts top-level only — internal subdirectories stay out of tree AND manifest", () => {
