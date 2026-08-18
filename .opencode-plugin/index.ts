@@ -23,6 +23,10 @@
  *   agents/   → merged + transformed (custom tools string → YAML objects,
  *              mode: subagent, hidden: true injected)
  *   scripts/  → merged (engram.py)
+ *   gold/     → merged (bundled assessor ground truth — engine reads it from
+ *              _plugin_root(), issue #20)
+ *   experiments/ → merged (pre-registered presets — same root)
+ *   docs/     → merged (cited by the extracted skills)
  *
  * Generated (always overwritten on extract):
  *   command/  → command/{learn,review-loop,coach}.md
@@ -77,7 +81,8 @@
  * -------------------------
  *
  * On version bump, selfExtract writes .engram-update.jsonc with a per-category
- * diff (skills, agents, scripts, commands — files added vs preserved).
+ * diff (skills, agents, scripts, commands, gold, experiments, docs — files
+ * added vs preserved).
  *
  * Notification (session-start.ts):
  *   system.transform — injects "Updates Engram Available!" + "Run
@@ -153,7 +158,6 @@
  * What was deliberately removed
  * -----------------------------
  *
- *   docs/ from extract        → end users don't need internal docs.
  *   cfg.references            → all paths local; AGENTS.md covers it.
  *   cfg.permission            → no external paths remain post-extract.
  *   cfg.{skills,commands,agents} → disk discovery (bridge on first exec).
@@ -176,7 +180,6 @@ import { createSessionStartHooks } from "../hooks/session-start.js"
 import { createShellEnvHook } from "../hooks/shell-env.js"
 import { selfExtract, getVERSION, syncProjectState } from "./install.js"
 import { createPluginLogger } from "./logger.js"
-import { engramUpdateTool } from "./update-tool.js"
 import { UPDATE_DESCRIPTION, UPDATE_TEMPLATE } from "./update-command.js"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -212,6 +215,14 @@ Arguments: $ARGUMENTS`,
 }
 
 export const server: Plugin = async ({ client, $, directory }) => {
+  // Loaded here, NOT at module top: update-tool.ts value-imports
+  // @opencode-ai/plugin (and calls tool() at module scope), and this module
+  // sits in the combined entry's static graph. A static import links the V1
+  // SDK into the V2 load path, where the specifier may be absent or its root
+  // export reshuffled (it has moved once already) — an ESM link error there
+  // kills the plugin before any try/catch runs. server() only ever executes
+  // under V1, the runtime that ships the SDK.
+  const { engramUpdateTool } = await import("./update-tool.js")
   const cwd = directory || process.cwd()
   const sessionStartHooks = createSessionStartHooks($, root, client)
   const shellEnvHooks = createShellEnvHook(root)

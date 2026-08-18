@@ -1,6 +1,111 @@
 # Changelog
 
-## 1.13.1 — 2026-08-16 · what the post-release review caught, again
+## 1.13.2 — 2026-08-18 · the npm install that never loaded (issues #19, #20)
+
+Both found by an outside reporter (@SK-DEV-AI) with source-verified diagnoses on a fresh
+`opencode-engram-learning` npm install — the install path no release gate had ever run
+end to end. Both reproduced here on a clean opencode 1.18.4 before fixing.
+
+**Packaging**
+
+- **V1 npm installs loaded the V2 adapter and died at startup (#19).** OpenCode 1.x probes
+  `exports["./server"]` *before* `main` — behavior shipping since March — and v1.13.0
+  pointed that key at the V2-only adapter (`{ id, setup }`), so every V1 npm install
+  failed with `must default export an object with server()` and the plugin never
+  extracted, never registered, never appeared. The v1.13.0 claim that "the same package
+  name loads the V1 adapter under V1 and the V2 adapter under V2" was simply false on the
+  V1 side: both runtimes probe the same key, so one key must satisfy both validators.
+  The embarrassing part: the flagship V2 release broke the platform the plugin is named
+  after, and the gap survived because the gates ran the git checkout, never a registry
+  install. Fix: a combined entry (`entry.ts`, `{ id, server, setup }`) behind `main`,
+  `exports["."]`, and `exports["./server"]` — verified against both loaders' sources:
+  V1's `readV1Plugin` requires `server()` and tolerates unknown keys; V2's
+  `PluginModule` schema requires `id` + `setup` and tolerates unknown keys.
+- **The same audit found a second, latent resolution bug the reporter couldn't see:** the
+  *current* V2 line no longer probes `./server` — it resolves the bare package name
+  (`import.meta.resolve`, i.e. `exports["."]`), which pointed at the V1-only adapter. The
+  combined entry closes that one before it ever shipped a symptom.
+- **Fresh extractions failed 10 of 307 selftest checks (#20).** `selfExtract` copied only
+  `skills/`, `agents/`, `scripts/` — but the engine resolves `gold/assessor-gold.jsonl`
+  and `experiments/<preset>.json` from its own location, so every opencode install ran
+  with the gold-audit family and the experiment-preset check broken (297/307, the
+  reporter's exact count, reproduced). `gold/`, `experiments/`, and `docs/` now extract
+  (new-files-only, like everything else) and joined the update-manifest categories so
+  bundled updates to them can ever land. `docs/` closes the secondary finding: the
+  extracted skills cite `docs/*.md`, and the AGENTS.md block installed on every machine
+  promised "engram-docs — resolve to the extracted copy in `.opencode/`" — a reference
+  that had pointed at nothing since v0.x.
+
+**What the pre-release review caught in the fix itself** (§4.5's rule that a fix is a diff
+and gets the full gate, proven again):
+
+- **The first cut of the combined entry would have killed V2 the way v1.13.0 killed V1.**
+  `entry.ts` statically imported `index.ts`, which statically imported `update-tool.ts` —
+  whose top-level `import { tool } from "@opencode-ai/plugin"` + module-scope `tool()`
+  call put a hard SDK link into the V2 load path. The V2 adapter's own design rule
+  ("ZERO @opencode-ai/* imports — the beta reshuffled its root export once already") was
+  voided on the only path V2 actually takes, and the new test suite couldn't see it
+  because the devtree always has the SDK installed. An independent reviewer reproduced
+  both failure modes under Bun (SDK absent; SDK root without `tool` — ESM link errors
+  that fire before any try/catch). `engramUpdateTool` now loads lazily inside `server()`,
+  which only V1 calls; the graph is pinned by a walk-the-imports absence check that was
+  mutation-tested in both directions (re-adding the static import fails it; so does
+  introducing a direct SDK import in entry.ts).
+- **Every version bump told upgraders their agents were "preserved, needs decision" —
+  and showed them the extraction transform played backwards.** The extracted agents can
+  never byte-match the packaged source (extraction injects `mode: subagent`,
+  `hidden: true`, tools map), so the raw compare in `diffCategory` manifested all three
+  agents on every bump, and `.engram-update.diff` presented the new version as *removing*
+  the subagent mode and tool restrictions. Pre-existing since the update system shipped;
+  fixed by comparing (and diffing) through the same transform extraction applies. An
+  existing test had silently pinned the buggy behavior — its version-bump manifest only
+  existed because agents always differed — and had to have a genuine difference added to
+  its fixture.
+- **`docs/` extraction was scoped to what the skills actually cite.** Top-level files
+  only: `docs/release-audits/` and `docs/user-sessions/` are internal process records no
+  skill references, and the AGENTS.md block describes the reference as "foundations,
+  architecture, roadmap". The shallow rule applies to both the extraction copy and the
+  manifest walk (a shared set — if they disagreed, every bump would manifest files
+  extraction never places). `DIRS` is now *derived* from the manifest category list, so a
+  future category can never be added whose files auto-update deletes and extraction
+  cannot restore — the invariant is also pinned by a delete-then-restore round-trip test.
+- **A checkpointed per-file update left the deleted files deleted, across restarts,
+  until the update completed.** The second reviewer reproduced it end to end: delete
+  `gold/assessor-gold.jsonl` in a per-file pass, leave the other categories for later,
+  and the version guard kept `selfExtract` early-returning — so the engine ran from a
+  holed tree indefinitely, the gold audit reported an empty set and *exited 0*, and the
+  only nag said "run /engram-update to continue". Issue #20's symptom, re-entered
+  through the update flow built to deliver its fix. A deleting checkpoint now drops the
+  version guard, so the next session's extract restores every deleted file as the new
+  version while never-overwrite semantics keep the preserved ones; the manifest (written
+  only on a version bump) survives for the remaining decisions. An existing test had
+  pinned the buggy behavior — asserting the guard *survives* a deleting checkpoint — and
+  was corrected.
+- **The update flow's delete paths could escape the target through a symlinked category
+  directory.** `isWithinTarget` is lexical (`resolve` does not follow links), and unlike
+  every other write path in the codebase, `auto`/`per_file` had no symlink guard — the
+  reviewer verified an unlink through a symlinked `docs/` deletes the real file outside
+  the target. Both paths now go through `safeUnlink`: refuse a symlinked file, refuse a
+  parent whose realpath leaves the target. The same rule the copy paths have carried
+  since v1.12.0, finally applied to the deletes.
+- **The bundled-gold provenance now pins the file, not just the path** (engine, +1
+  selftest check, 307 → 308). On extracting platforms the never-overwrite semantics can
+  pin `gold/assessor-gold.jsonl` to an old release while the engine moves on — and the
+  audit would stamp `bundled:gold/assessor-gold.jsonl` as though it were this release's
+  shipped ground truth. The stamp now carries a sha of the actual bytes
+  (`bundled:gold/assessor-gold.jsonl@<sha8>`, and `bundled@<sha8> + local-gold…` on the
+  re-adjudicated path), so skew is checkable against the repo. The new check recomputes
+  the hash independently and fails on a constant string (mutation-tested).
+
+**Verification** — live on opencode 1.18.4 (XDG-isolated): registry 1.13.1 reproduces the
+startup error verbatim; the fixed package loads, extracts all six directories (docs
+shallow), and the extracted tree passes 307/307 (scripts-only tree: 297/307, matching the
+report). The combined entry was also imported under Bun with no SDK and with a reshuffled
+SDK — both load `{ id, server, setup }`. Selftest delta: 307 → 308 (the gold-provenance
+pin; the engine is otherwise untouched but for the version constant); vitest 215 → 231.
+Every new check was mutation-tested — thirteen mutations, each killed by exactly the
+check written for it, including both directions of the SDK-absence check (re-adding the
+static import, and introducing a fresh one).
 
 §7.5 ran against shipped v1.13.0 and found what every pre-release gate had walked past.
 Patched immediately per protocol.

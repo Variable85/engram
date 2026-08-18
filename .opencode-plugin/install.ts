@@ -5,7 +5,8 @@
  * Copies plugin files from the npm package cache into OpenCode's config directory.
  * copyMissing() never overwrites existing files — preserves user edits across updates.
  *
- * Extraction (DIRS): skills/, agents/, scripts/ (new files only, never overwrite)
+ * Extraction (DIRS): skills/, agents/, scripts/, gold/, experiments/, docs/
+ * (new files only, never overwrite)
  * Generated (versioned marker block): AGENTS.md (project root or global)
  * Generated (always overwritten): command/, .engram-version.jsonc
  *
@@ -18,11 +19,23 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFi
 import { resolve, basename } from "node:path"
 import { execSync } from "node:child_process"
 import { parseFrontmatter } from "./parse-frontmatter.js"
-import { writeUpdateManifest } from "./update.js"
+import { writeUpdateManifest, MANIFEST_CATEGORIES, SHALLOW_CATEGORIES } from "./update.js"
 import { warnClaudeMdCollision } from "./claude-warning.js"
 
-/** Directory categories copied by selfExtract. docs/ deliberately excluded. */
-const DIRS = ["skills", "agents", "scripts"]
+/** Directory categories copied by selfExtract (new files only, never overwrite).
+ *  gold/ and experiments/ are engine dependencies, not learner data: engram.py
+ *  resolves both from its own location (_plugin_root()), so an extracted engine
+ *  without them fails 10 selftest checks — the gold-audit family and the
+ *  experiment-preset check (issue #20). The learner's own gold/local-gold.jsonl
+ *  lives in the state dir and is never touched by extraction. docs/ is cited by
+ *  the extracted skills (docs/05-affective-layers.md etc.) and promised by the
+ *  AGENTS.md block ("resolve to the extracted copy"), so it ships too —
+ *  top-level files only (SHALLOW_CATEGORIES): the internal subdirectories are
+ *  process records no skill cites.
+ *  DERIVED from the manifest category list so auto update can never delete a
+ *  manifested file this loop does not know how to restore ("commands" is the
+ *  one category regenerated elsewhere — generateCommands). */
+const DIRS = MANIFEST_CATEGORIES.filter(d => d !== "commands")
 
 const INSTRUCTIONS_TEXT = `# Engram — Evidence-Based Learning Engine
 
@@ -329,15 +342,19 @@ export function needsExtract(target: string, version: string): boolean {
   return prev !== version
 }
 
-/** Recursively copies new files from src to dest. Never overwrites existing files (existsSync guard). No-ops silently if src absent. */
-export function copyMissing(src: string, dest: string) {
+/** Recursively copies new files from src to dest. Never overwrites existing
+ *  files (existsSync guard). No-ops silently if src absent. shallow=true
+ *  copies top-level files only (SHALLOW_CATEGORIES — must stay in step with
+ *  walkFiles in update.ts, or the manifest lists files extraction never
+ *  places). */
+export function copyMissing(src: string, dest: string, shallow = false) {
   if (!existsSync(src)) return
   mkdirSync(dest, { recursive: true })
   for (const entry of readdirSync(src, { withFileTypes: true })) {
     const srcPath = resolve(src, entry.name)
     const destPath = resolve(dest, entry.name)
     if (entry.isDirectory()) {
-      copyMissing(srcPath, destPath)
+      if (!shallow) copyMissing(srcPath, destPath)
     } else if (!existsSync(destPath)) {
       copyFileSync(srcPath, destPath)
     }
@@ -443,7 +460,7 @@ function generateCommands(target: string, log: (msg: string) => void) {
  * Main extraction entry point. Idempotent via .engram-version.jsonc guard.
  *
  * 1. Version check → skip if same
- * 2. copyMissing skills/, agents/, scripts/ (new files only)
+ * 2. copyMissing every DIRS category (new files only; docs/ top-level only)
  * 3. Transform agents to OpenCode YAML (mode: subagent, hidden: true)
  * 4. Generate AGENTS.md (versioned marker block), command/ (always overwritten)
  * 5. Write .engram-version.jsonc with version + previous
@@ -464,7 +481,7 @@ export function selfExtract(packageRoot: string, directory: string, version: str
     for (const dir of DIRS) {
       const srcDir = resolve(packageRoot, dir)
       const destDir = resolve(target, dir)
-      copyMissing(srcDir, destDir)
+      copyMissing(srcDir, destDir, SHALLOW_CATEGORIES.has(dir))
       if (existsSync(srcDir)) {
         log(`Engram: merged ${dir} to ${destDir}`)
       }
