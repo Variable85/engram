@@ -1,5 +1,114 @@
 # Changelog
 
+## 1.14.0 — 2026-08-18 · the sense-making layer (docs/16)
+
+KLI names three learning processes; Engram routed everything through two of them
+(`docs/11` §2 said so itself). This release routes the third — understanding &
+sense-making — as **four gauntlet-verified upgrades to existing beats and edges**, plus
+one new pre-registered experiment. The research pass, the production-bar filter, and the
+three refute-first verifications (9 claims corrected, 6 design rules killed or rewritten
+before implementation) are on the record in `docs/16-the-sense-making-layer.md`.
+
+**Pedagogy (prompt-level)**
+
+- **P18 — contrast-first opening** (`dialogue-grammar.md`, `/learn` step 3): a concept
+  node that passes a four-way gate (non-arbitrary, prior knowledge above the novice
+  floor — *novice gate wins any tie*, no `interactivity: "high"`, an authored `contrast`
+  set) opens with 3–5 contrasting cases and **≥2 ranked committed candidate rules** before
+  any feedback. The firewall is on content, not support: H1–H2 hints stay live, H3–H4 and
+  correctness signals are withheld. Never fires in Sprint mode (the PS-I corpus's own
+  duration finding). RESOLVE after any committed multi-attempt must be **built from the
+  learner's attempts** — quoted verbatim, each missed deep feature named, dialogically
+  (the strongest significant fidelity contrast in Sinha & Kapur 2021: g 0.56 vs 0.20).
+- **P19 — guided analogy pairs at CONNECT**: the analogy card is now a compared pair
+  (canonical case beside the analog, surface-different) with an elicited alignment —
+  correspondences, then the shared relation, then the tutor states the principle. The
+  learner's alignment sentence rides the stash as `alignment`; the assessor scores it
+  0/1/2 as an `alignment_quality=` clause in `rubric_notes` — a transfer *correlate* that
+  never moves the grade, in either direction.
+- **P17 concept clause** (`/review` step 2): a due concept item whose `contrasts_with`
+  sibling survives retirement gets ONE adjacent discrimination step ("which is which, and
+  what single feature decides it?") before its probe — open production, sibling's
+  schedule untouched, `arbitrary: true` exempt (blocking wins for vocabulary), never in
+  quick mode. Shipped explicitly as an **instrumented hypothesis**: the concept-induction
+  evidence is visual and this drill is text (docs/16 §7.7–7.8 hold the open questions).
+- **Concreteness fading tightened one sentence**: when example-first fires, each fade
+  states its correspondence out loud — never a silent notation swap.
+
+**Curriculum (architect + engine, the `viz` opaque-storage covenant)**
+
+- Architect now authors **`contrast`** sets ({deep_feature, cases[], invite} — one
+  feature varies, surfaces held constant, omit when no clean set exists) and flags
+  **`interactivity: "high"`** on genuinely element-interactive nodes. The engine stores
+  both opaquely with warn-and-drop shape checks (`contrast` with <2 cases is dropped;
+  unknown `interactivity` literal is dropped); absence is byte-compatible with v1.13
+  graphs. `due` payloads now carry **`contrasts_with`** siblings (id + claim, retired
+  dropped) so `/review` serves the discrimination pair without a second engine call.
+
+**Experiment layer**
+
+- New pre-registered preset **`contrast-first`** (`experiment start --preset
+  contrast-first`): contrast_first vs resolve_first on P18-gated nodes,
+  `metric: transfer_fired` — because the PS-I benefit reliably hides from sequestered
+  recall (Schwartz & Martin 2004), a retention null settles nothing and the preset says
+  so before any datum exists. The perceptual-fluency track stays **out** (its RCT
+  evidence runs an order of magnitude below its within-subject numbers — docs/16 §6);
+  the explorable-timed classification experiment remains parked with its doctrine
+  carve-out unearned.
+
+**Gold set**
+
+- 3 new adversarial items (`g_087`–`g_089`): the **alignment-halo** (a superb alignment
+  sentence over an empty production stays `lapsed`), its mirror (a clumsy alignment over
+  a complete production stays `recalled`), and the 0/1/2 mid-band.
+
+**What the pre-release review caught in this release itself** (§4.6, ten verified
+findings, all fixed before ship):
+
+- **A scalar `contrast.cases` crashed `add-topic` with a TypeError** (the one command an
+  architect runs unattended), and a *string* passed the ≥2-cases gate as a character
+  count. Now: list-or-dropped, warn-never-die.
+- **The gold audit was serving g_087–089 with their `alignment` stripped** — the
+  whitelist was never extended, so the alignment-halo trap passed vacuously: the grader
+  was never shown the sentence the items exist to test it against. `alignment` is now a
+  gold/stash-shape key.
+- **A self-`contrasts_with` edge passed silently** and would have served the node its own
+  claim as a "sibling" right before free recall; **an unencoded (`new`) sibling's claim
+  was pre-exposure.** Both now dropped at serve time; self-edges named at ingest.
+- **`--extend` re-validated — and mutated — nodes the payload never touched** (the exact
+  bug class the adjacent probe/rubric guard documents). New-field validation now runs
+  only on authored, still-listed nodes.
+- **The discrimination drill's minimal pair was built from claim texts** — handing the
+  learner the canonical answer one turn before the probe. Rewritten: fresh instances
+  only, claims are construction fuel, skip when the pair can't avoid the answer.
+- **`alignment_quality` was an unparseable substring in `rubric_notes`** — a "measured
+  correlate" nothing could measure. It is now a validated 0/1/2 field on the receipt
+  (bools refused; absence stays absent).
+- **The `contrast-first` preset's power_note lied**: it compared against the flat floor
+  of 15 while settle uses the metric-aware floor (8 for `transfer_fired`) — the
+  pre-registration record contradicting the analysis. The note now quotes the same floor
+  the settle enforces.
+- **A gold-set change did not expire the grader badge** — a badge earned on 86 items
+  would have kept vouching against 89 it never saw. New `stale-gold` trigger (sha-
+  compared, canary-relicensable), which v1.14's own gold growth is the first to trip.
+- **Every published gold count still said 86** (README badge alt, prose, ADJUDICATION,
+  docs/13–15, engine comments). All now say 89, with the 0/258 figure honestly scoped to
+  the 86-item set it was earned on.
+- P18's gate width was stated at three different sizes across five files; unified at
+  four, and the preset now warns that `transfer_fired` settles in weeks by design.
+
+**Selftest 308 → 314** (every new check mutation-tested per RELEASE_PROTOCOL §4.5):
+contrast/interactivity warn-and-drop; the non-list-cases crash path; `--extend`
+non-mutation; `contrasts_with` in the due payload dropping ghost/retired/self/new
+siblings; `alignment_quality` literal validation; `stale-gold` badge expiry.
+
+**Upstream corrections (found by this release's gauntlet)**
+
+- `docs/11` §4: the Brunmair adjacency moderator now carries its real weight (k = 17,
+  four studies, "spaced" = 10–30 *seconds* — presentation lag, not scheduling; the
+  distractor cell g = 0.51 is the one a dialogue drill resembles), and the expertise
+  reversal's "strongest in higher education" is scoped to the novice-benefit side only.
+
 ## 1.13.2 — 2026-08-18 · the npm install that never loaded (issues #19, #20)
 
 Both found by an outside reporter (@SK-DEV-AI) with source-verified diagnoses on a fresh

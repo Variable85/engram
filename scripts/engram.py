@@ -33,7 +33,7 @@ SCHEMA = 1
 # The one place the engine knows its own version. Read by `export`, so a shared receipt states
 # which engine produced it — a corpus of receipts from unknown engine versions is not a corpus.
 # Pinned against .claude-plugin/plugin.json by a selftest, so it cannot drift.
-ENGRAM_VERSION = "1.13.2"
+ENGRAM_VERSION = "1.14.0"
 RETENTION_DEFAULT = 0.90
 INTERVAL_MAX = 365
 RETENTION_MIN, RETENTION_MAX = 0.70, 0.97   # sane desired-retention bounds
@@ -989,6 +989,28 @@ def cmd_add_topic(args):
             warnings.append("%s: %s%s" % (nid,
                             ("rubric criterion %d " % gap["criterion"]) if gap["criterion"] else "",
                             gap["note"]))
+        # `interactivity` + `contrast` (v1.14, docs/16): validated like `viz` — warn-and-
+        # drop, never fatal — but ONLY on nodes this payload authored and still listed
+        # (same guard, same reason as the probe/rubric scan above: `--extend` merges every
+        # pre-existing node into g["nodes"], and an unguarded check would warn about — and
+        # here MUTATE — nodes the author never touched, while `doctor` calls them clean).
+        # `cases` must be a real list: a scalar reached len() and took the whole add down
+        # with a TypeError, and a string passed the >=2 gate as characters — both found by
+        # the v1.14 pre-release review.
+        if _authored and _still_listed:
+            if node.get("interactivity") is not None and node.get("interactivity") not in (
+                    "high", "normal"):
+                warnings.append("%s: unknown interactivity %r dropped (use high|normal)"
+                                % (nid, node.get("interactivity")))
+                node.pop("interactivity", None)
+            if node.get("contrast") is not None and not isinstance(node.get("contrast"), dict):
+                warnings.append("%s: contrast block is not an object — dropped" % nid)
+                node["contrast"] = None
+            if (isinstance(node.get("contrast"), dict)
+                    and not (isinstance(node["contrast"].get("cases"), list)
+                             and len(node["contrast"]["cases"]) >= 2)):
+                warnings.append("%s: contrast block needs a list of >=2 cases — dropped" % nid)
+                node["contrast"] = None
         # The engine OWNS scheduling state — never trust payload-supplied state/fsrs
         # (mastery advances only through receipts; Article 10). On --replace, carry
         # the existing schedule forward for surviving node ids so restructuring a
@@ -1037,7 +1059,13 @@ def cmd_add_topic(args):
             if not isinstance(targets, list):
                 continue
             for t in targets:
-                if t not in g["nodes"]:
+                if t == nid:
+                    # a self-edge passed silently (its own id IS in g["nodes"]) and a
+                    # self-contrast then served the node its own claim as a "sibling"
+                    # right before free recall (v1.14 pre-release review)
+                    warnings.append("%s.%s -> itself (self-edge; serving surfaces skip it)"
+                                    % (nid, etype))
+                elif t not in g["nodes"]:
                     warnings.append("%s.%s -> unknown node '%s'" % (nid, etype, t))
     cyc = _requires_cycle(g)
     if cyc:
@@ -1488,6 +1516,23 @@ def due_items(topic_filter=None, limit=None, horizon_days=0, order="overdue"):
                     "node_kind": node_kind_of(node),
                     "practice": (node.get("practice")
                                  if isinstance(node.get("practice"), dict) else None),
+                    # v1.14 (docs/16 §5, the P17 concept clause): the confusable siblings
+                    # ride the due payload — id + claim only — so /review can serve the
+                    # discrimination pair adjacently without a second engine call. Dropped,
+                    # never served: unknown ids, retired siblings, the node ITSELF (a
+                    # self-contrast would hand the learner their own answer), and any
+                    # sibling still `new` — an unencoded sibling's claim is pre-exposure,
+                    # and the drill discriminates between things the learner has MET. The
+                    # skill owns the remaining exemptions (arbitrary nodes, quick mode).
+                    "contrasts_with": [
+                        {"id": c, "claim": g["nodes"][c].get("claim")}
+                        for c in (((node.get("edges") or {}).get("contrasts_with") or [])
+                                  if isinstance(node.get("edges"), dict) else [])
+                        if isinstance(c, str) and c != nid
+                        and isinstance((g.get("nodes") or {}).get(c), dict)
+                        and g["nodes"][c].get("state") != "new"
+                        and not is_retired(g["nodes"][c])
+                    ],
                 })
                 if fsrs.get("dose") is True and as_number(fsrs.get("reps"), 0) <= DOSE_REPS:
                     # inv. 14: a model-derived policy must carry its label where a skill
@@ -1664,6 +1709,14 @@ def make_receipt(item, extra, kind):
     ec = item.get("error_class")
     if ec in ERROR_CLASSES:
         receipt["error_class"] = ec
+    # The analogy-alignment score (v1.14, docs/16 P19): the assessor's 0/1/2 rating of the
+    # learner's stated commonality between two compared cases. A transfer CORRELATE being
+    # recorded — never a grade input, never inferred. Validated to the literal scale;
+    # absent stays honestly absent (bool guard: True == 1 in Python, and a grader emitting
+    # `true` must not become a real-looking 1).
+    aq = item.get("alignment_quality")
+    if aq in (0, 1, 2) and not isinstance(aq, bool):
+        receipt["alignment_quality"] = aq
     # Which grader produced this verdict (v0.7, docs/09 §3.3). Recorded when the assessor
     # states it, NEVER invented: a model guessing its own model-id is exactly the fabricated
     # data this repo bans, and v1.0's export must be able to carry each receipt's grader so
@@ -2655,12 +2708,20 @@ def cmd_experiment(args):
             "started": today().isoformat(), "status": "active",
             "assignments": [], "verdict": None,
         })
-        if exp["min_per_arm"] < EXPERIMENT_MIN_PER_ARM:
+        # The note compares against the METRIC-AWARE floor — the same one settle/status
+        # enforce (max of min_per_arm and _exp_metric_floor). Comparing against the bare
+        # 15 told a transfer_fired experiment (floor 8) that its settle "will read
+        # underpowered", and the settle then issued a real verdict at 8 — the
+        # pre-registration record contradicting the analysis is bug class #7 wearing a
+        # power label (v1.14 pre-release review).
+        _floor = _exp_metric_floor(exp)
+        if exp["min_per_arm"] < _floor:
             exp["power_note"] = (
-                "min_per_arm=%d is BELOW the %d this engine considers powered (~%d observations "
-                "total; the SCED alternating-treatments literature puts sufficient power at "
-                "~28-30 — docs/07 §9). The settle will read `underpowered` and it will be right."
-                % (exp["min_per_arm"], EXPERIMENT_MIN_PER_ARM, EXPERIMENT_MIN_PER_ARM * 2))
+                "min_per_arm=%d is BELOW the %d this engine considers powered for metric "
+                "`%s` (the SCED alternating-treatments literature puts sufficient power at "
+                "~28-30 observations — docs/07 §9). The settle will read `underpowered` "
+                "and it will be right."
+                % (exp["min_per_arm"], _floor, exp.get("metric")))
         items.append(exp)
         write_json(path, items)
         emit(exp)
@@ -3454,7 +3515,7 @@ GOLD_SCORE = {"lapsed": 0, "partial": 1, "recalled": 2}   # ordinal; QWK needs t
 
 # ── THE CANARY (v1.4) ────────────────────────────────────────────────────────────────────
 # A badge is only valid for the grader that earned it. When the model changes underneath a
-# learner (a platform upgrade), the honest options are "re-run the whole 86x3 ceremony" or
+# learner (a platform upgrade), the honest options are "re-run the whole full-set x3 ceremony" or
 # "carry a badge nobody re-earned" — and the second is how a stale pass gets believed. The
 # canary is the cheap third option: a fixed, seed-stable subset that can only ever RE-LICENSE
 # the prior verdict or DEMAND a full re-audit. It can never mint a `pass` (invariant 12).
@@ -3480,7 +3541,12 @@ PARADOX_RETEST = 0.95   # above this consistency, leniency must be strictly unde
 # #5 (the assessor is blind) applied to the audit itself — and RELEASE_PROTOCOL §5.5's
 # hardest lesson: a test that hands the subject the answer is not a test.
 GOLD_ASSESSOR_KEYS = ("topic", "node", "sid", "claim", "rubric", "probe",
-                      "production", "confidence", "kind", "node_kind")
+                      "production", "confidence", "kind", "node_kind",
+                      # v1.14: the learner's stated commonality between two compared cases
+                      # (P19) — an INPUT the assessor scores 0/1/2, not an answer. Omitting
+                      # it here silently un-set the alignment-halo trap (g_087–089): the
+                      # grader never saw the sentence the items exist to test it against.
+                      "alignment")
 # Everything the assessor must never see. The whitelist above already makes that structural;
 # this list is what the BLINDNESS selftest asserts is absent.
 GOLD_SECRET_KEYS = ("gold_grade", "case_type", "rationale")
@@ -4012,7 +4078,7 @@ def cmd_assessor_audit(args):
     # difficulty, so it is a TRIPWIRE, not a certification: it can re-license the verdict a
     # full audit already earned, or demand a fresh full audit. Anything else and the cheap
     # path would quietly replace the expensive one, which is how a 15-item badge ends up
-    # standing in for an 86-item claim.
+    # standing in for a full-set claim.
     if scope == "canary" and verdict not in ("insufficient-data", "incomplete"):
         # `coverage_complete` belongs in `clean`: a canary that graded a sid twice did not
         # cover its subset, and promoting it to `canary-pass` handed the re-licensing path
@@ -4161,7 +4227,7 @@ def _latest_audit():
         return None
     # ⚠ THE LATEST *FULL* AUDIT — a canary is not a candidate (v1.4). A canary can only
     # re-license or revoke; if it were allowed to BE the latest audit, running one would
-    # replace an 86-item verdict with a 15-item one, and `canary-pass` (not a valid full
+    # replace a full-set verdict with a 15-item one, and `canary-pass` (not a valid full
     # verdict) would read as `unreadable` and silently void a badge that was fine. The cheap
     # path must never overwrite the expensive one — it may only vouch for it.
     for latest in reversed(names):
@@ -4263,7 +4329,30 @@ def compute_grader_health(current_grader_context=None):
     audited_ctx = _str("grader_context")
     current_ctx = current_grader_context if isinstance(current_grader_context, str) else None
     if not unval:
-        if (audited_ctx and current_ctx and audited_ctx not in ("unknown",)
+        # v1.14: A BADGE IS ALSO ONLY AS GOOD AS ITS RULER. `load_gold` stamps the gold
+        # set's sha into `gold_source` and every audit stores it — but nothing ever
+        # compared them, so the first release to grow the gold set would have let a badge
+        # earned on 86 items keep vouching against a set of 89 it never saw. Decisive like
+        # a model swap; the canary (which grades the CURRENT set) can re-license it.
+        # Degrade, never brick (§4.7): an unreadable gold set contributes no trigger here —
+        # the audit path has its own loud complaint for that.
+        try:
+            _gold_now = load_gold()[1].get("source")
+        except Exception:
+            _gold_now = None
+        _gold_then = _str("gold_source")
+        # Same-namespace comparisons only: an audit run against an OVERRIDE file (absolute
+        # path) named its own ruler, and comparing it to the bundled set would expire every
+        # such badge the moment it was earned. Those keep the model/age triggers; the sha
+        # comparison is for the bundled(+local) default path both sides actually took.
+        if (_gold_then and isinstance(_gold_now, str) and _gold_now
+                and not os.path.isabs(_gold_then) and not os.path.isabs(_gold_now)
+                and _gold_then != _gold_now):
+            stale = ("stale-gold", "the gold set this badge was earned on (%s) is not the "
+                                   "one shipping now (%s) — the ruler changed, so the "
+                                   "measurement no longer describes it"
+                     % (_gold_then, _gold_now))
+        elif (audited_ctx and current_ctx and audited_ctx not in ("unknown",)
                 and current_ctx not in ("unknown",) and audited_ctx != current_ctx):
             stale = ("stale-model", "the model that earned this badge (%s) is not the one "
                                     "grading you now (%s)" % (audited_ctx, current_ctx))
@@ -4378,8 +4467,8 @@ def _krippendorff_ordinal(pairs):
     return 1.0 - do / de
 
 def _bootstrap_alpha_ci(pairs, seed=20260724, iters=1000):
-    """Percentile CI for alpha. n=86 gives a WIDE interval — publish it anyway; a point
-    estimate from 86 items quoted without its spread is the label lying about its own
+    """Percentile CI for alpha. n~90 gives a WIDE interval — publish it anyway; a point
+    estimate from ~90 items quoted without its spread is the label lying about its own
     precision (§4.8 Q6)."""
     if len(pairs) < 4:
         return None
@@ -8991,7 +9080,10 @@ def cmd_selftest(_args):
         _capture(cmd_stash, _ns(action="add", json=json.dumps([{
             "topic": "t", "node": "a", "claim": "c", "rubric": ["r"], "probe": "p",
             "production": "prod", "confidence": 60, "kind": "encode",
-            "node_kind": "procedure"}]), file=None))
+            "node_kind": "procedure",
+            # v1.14: `alignment` is a real (optional) stash-shape key — P19's elicited
+            # commonality rides the entry exactly like node_kind rides procedure items
+            "alignment": "both share the update-in-place structure"}]), file=None))
         stashed = _capture_json(cmd_stash, _ns(action="list", json=None, file=None))
         gold_items = _capture_json(cmd_gold, _ns())
         # both are BARE ARRAYS; every gold key is a stash-shape key; `node_kind` appears
@@ -10571,6 +10663,118 @@ def cmd_selftest(_args):
     check("due payload carries node_kind + practice (concept/None when undeclared)",
           fresh(_due_kinds))
 
+    # ============== v1.14 · the sense-making layer (docs/16) ==============
+    # -- add-topic: contrast + interactivity validated like viz (warn+drop, never die);
+    #    a scalar `cases` must neither crash the add (TypeError on len()) nor pass as a
+    #    character count — both found by the v1.14 pre-release review --
+    def _sense_validation(h):
+        g = {"topic": "s", "title": "S", "order": ["a", "b", "c", "d"], "nodes": {
+            "a": {"claim": "A", "probe": "pa", "interactivity": "high",
+                  "contrast": {"deep_feature": "d", "cases": ["c1", "c2", "c3"],
+                               "invite": "invent a rule"}},
+            "b": {"claim": "B", "probe": "pb", "interactivity": "weird",
+                  "contrast": {"deep_feature": "d", "cases": ["only-one"]}},
+            "c": {"claim": "C", "probe": "pc", "contrast": "just compare stuff"},
+            "d": {"claim": "D", "probe": "pd",
+                  "contrast": {"deep_feature": "d", "cases": "case one; case two"}}}}
+        out = json.loads(_capture(cmd_add_topic, _ns(json=json.dumps(g))))
+        saved = load_graph("s")["nodes"]
+        return (saved["a"]["interactivity"] == "high"
+                and saved["a"]["contrast"]["cases"] == ["c1", "c2", "c3"]
+                and "interactivity" not in saved["b"]
+                and saved["b"]["contrast"] is None
+                and saved["c"]["contrast"] is None
+                and saved["d"]["contrast"] is None      # a 22-char string is not 22 cases
+                and any("unknown interactivity" in w for w in out["warnings"])
+                and any("needs a list of >=2 cases" in w for w in out["warnings"])
+                and any("contrast block is not an object" in w for w in out["warnings"]))
+    check("add-topic validates contrast + interactivity like viz (warn+drop, never die)",
+          fresh(_sense_validation))
+
+    # -- and a scalar `cases` value must not kill the add with a traceback --
+    def _sense_no_crash(h):
+        out = json.loads(_capture(cmd_add_topic, _ns(json=json.dumps(
+            {"topic": "s2", "title": "S", "order": ["a"], "nodes": {
+                "a": {"claim": "A", "probe": "pa",
+                      "contrast": {"deep_feature": "d", "cases": 3}}}}))))
+        return (load_graph("s2")["nodes"]["a"]["contrast"] is None
+                and any("needs a list of >=2 cases" in w for w in out["warnings"]))
+    check("a non-list contrast.cases degrades with a warning instead of a TypeError",
+          fresh(_sense_no_crash))
+
+    # -- --extend must not warn about, or MUTATE, nodes the payload never touched — the
+    #    same guard (and the same bug class) as the probe/rubric scan above --
+    def _sense_extend_no_mutation(h):
+        _capture(cmd_add_topic, _ns(json=json.dumps(
+            {"topic": "s", "title": "S", "order": ["a"],
+             "nodes": {"a": {"claim": "A", "probe": "pa"}}})))
+        g = load_graph("s")     # simulate a pre-v1.14 store carrying unvalidated junk
+        g["nodes"]["a"]["interactivity"] = "weird"
+        g["nodes"]["a"]["contrast"] = {"deep_feature": "d", "cases": ["only-one"]}
+        save_graph(g)
+        out = json.loads(_capture(cmd_add_topic, _ns(extend=True, json=json.dumps(
+            {"topic": "s", "title": "S", "order": ["b"],
+             "nodes": {"b": {"claim": "B", "probe": "pb"}}}))))
+        a = load_graph("s")["nodes"]["a"]
+        return (a.get("interactivity") == "weird"           # untouched, not deleted
+                and isinstance(a.get("contrast"), dict)     # untouched, not dropped
+                and not any(w.startswith("a:") for w in out["warnings"]))
+    check("--extend leaves un-authored nodes' contrast/interactivity byte-identical",
+          fresh(_sense_extend_no_mutation))
+
+    # -- due payload: contrasts_with siblings ride along (id + claim); ghost, retired,
+    #    SELF, and never-encoded siblings are dropped, never served (a `new` sibling's
+    #    claim is pre-exposure; a self-contrast is the node's own answer) --
+    def _due_contrasts(h):
+        g = {"topic": "s", "title": "S", "order": ["a", "b", "d"], "nodes": {
+            "a": {"claim": "A claim", "probe": "pa",
+                  "edges": {"contrasts_with": ["a", "b", "d", "ghost"]}},
+            "b": {"claim": "B claim", "probe": "pb",
+                  "edges": {"contrasts_with": ["a"]}},
+            "d": {"claim": "D claim", "probe": "pd"}}}
+        out = json.loads(_capture(cmd_add_topic, _ns(json=json.dumps(g))))
+        for n in ("a", "b"):                                # d stays `new`, on purpose
+            _capture(cmd_rate, _ns(topic="s", node=n, rating="good", kind="encode"))
+        os.environ["ENGRAM_TODAY"] = "2026-09-01"
+        d = {i["id"]: i for i in due_items()}
+        before = d["a"]["contrasts_with"] == [{"id": "b", "claim": "B claim"}]
+        _capture(cmd_retire, _ns(topic="s", node="b"))
+        d2 = {i["id"]: i for i in due_items()}
+        return (before and d2["a"]["contrasts_with"] == []
+                and any("itself" in w for w in out["warnings"]))   # self-edge named at ingest
+    check("due contrasts_with drops ghost, retired, SELF, and never-encoded siblings",
+          fresh(_due_contrasts))
+
+    # -- alignment_quality (P19): validated to the literal 0/1/2 scale on the receipt;
+    #    a bool or off-scale value stays honestly absent --
+    def _alignment_receipt(h):
+        _capture(cmd_add_topic, _ns(json=json.dumps(
+            {"topic": "s", "title": "S", "order": ["a"],
+             "nodes": {"a": {"claim": "A", "probe": "pa"}}})))
+        for aq, want in ((2, True), (True, False), (3, False), ("2", False)):
+            apply_item({"topic": "s", "node": "a", "rating": "good",
+                        "grade": "recalled", "alignment_quality": aq}, "encode")
+            r = read_jsonl(p("receipts", "s.jsonl"))[-1]
+            if (("alignment_quality" in r) is not want
+                    or (want and r["alignment_quality"] != 2)):
+                return False
+        return True
+    check("alignment_quality lands on the receipt iff it is a literal 0/1/2 (bools refused)",
+          fresh(_alignment_receipt))
+
+    # -- a badge earned on one gold set must not vouch against another (stale-gold) --
+    def _stale_gold(h):
+        os.makedirs(p("audits"), exist_ok=True)
+        write_json(p("audits", "2026-08-17-01.json"), {
+            "ts": today().isoformat(), "verdict": "pass", "qwk": 0.95, "n": 258, "runs": 3,
+            "grader_context": "platform/model-A",
+            "gold_source": "bundled@deadbeef", "read": "r", "reasons": []})
+        gh = _capture_json(cmd_grader_health, _ns(grader_context="platform/model-A"))
+        return (gh["verdict"] == "stale-gold" and gh["grader_unvalidated"] is True
+                and "ruler changed" in gh["stamp"])
+    check("a gold-set change expires the grader badge (stale-gold, canary-relicensable)",
+          fresh(_stale_gold))
+
     # -- the node_kind STAMP: written at grading time, immune to later reclassification --
     def _kind_stamp(h):
         _add_kinds()
@@ -11990,7 +12194,7 @@ def cmd_selftest(_args):
     # -- the shipped presets are real pre-registrations, and load as designs --
     def _presets(h):
         loaded = []
-        for name in ("probe-variation", "topic-reconstruction"):
+        for name in ("probe-variation", "topic-reconstruction", "contrast-first"):
             _capture(cmd_experiment, _ns(action="start", preset=name))
             exp = _as_list(read_json(p("experiments.json"), []))[-1]
             loaded.append(exp)
