@@ -103,6 +103,16 @@ predicts:** an unhashable `metric` in a hand-edited experiments.json crashed
 (pre-existing, exposed by fuzzing the sub-action; 600 states, 2 seeds, now 0 crashes).
 Guarded at the gate, locked in with a mutation-tested check.
 
+**The §5.6 user session went agent-run** (RELEASE_PROTOCOL amended): the release agent
+tutors a learner persona agent with a pinned, deliberately-wrong knowledge state in an
+isolated context — the same separation that keeps the assessor blind. This release's
+session (espresso dial-in; report: `docs/user-sessions/v1.14.0-the-agent-learner.md`)
+watched the contrast-first opening kill a confident misconception *before* any teaching,
+scored a 2/2 analogy alignment through the blind grader with the grade unmoved, and
+verdicted **ship** — with its provenance stated and two findings landed in the same
+release: the dose-cap sentence in `/review`'s close, and the architect rule that CONNECT
+analogies and `transfer_probe`s must wear different clothing.
+
 **Selftest 308 → 315** (every new check mutation-tested per RELEASE_PROTOCOL §4.5):
 contrast/interactivity warn-and-drop; the non-list-cases crash path; `--extend`
 non-mutation; `contrasts_with` in the due payload dropping ghost/retired/self/new
