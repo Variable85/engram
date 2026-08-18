@@ -1,6 +1,6 @@
 {
   "name": "opencode-engram-learning",
-  "version": "1.13.1",
+  "version": "1.13.2",
   "description": "Evidence-based learning engine for OpenCode — learn anything, verify by free recall, schedule with FSRS, adapt from your own data.",
   "type": "module",
   "license": "MIT",
@@ -16,10 +16,10 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "main": "./.opencode-plugin/index.ts",
+  "main": "./.opencode-plugin/entry.ts",
   "exports": {
-    ".": "./.opencode-plugin/index.ts",
-    "./server": "./.opencode-plugin/v2.ts",
+    ".": "./.opencode-plugin/entry.ts",
+    "./server": "./.opencode-plugin/entry.ts",
     "./v2": "./.opencode-plugin/v2.ts"
   },
   "keywords": [

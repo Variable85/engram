@@ -1,6 +1,47 @@
 # Changelog
 
-## 1.13.1 — 2026-08-16 · what the post-release review caught, again
+## 1.13.2 — 2026-08-18 · the npm install that never loaded (issues #19, #20)
+
+Both found by an outside reporter (@SK-DEV-AI) with source-verified diagnoses on a fresh
+`opencode-engram-learning` npm install — the install path no release gate had ever run
+end to end. Both reproduced here on a clean opencode 1.18.4 before fixing.
+
+**Packaging**
+
+- **V1 npm installs loaded the V2 adapter and died at startup (#19).** OpenCode 1.x probes
+  `exports["./server"]` *before* `main` — behavior shipping since March — and v1.13.0
+  pointed that key at the V2-only adapter (`{ id, setup }`), so every V1 npm install
+  failed with `must default export an object with server()` and the plugin never
+  extracted, never registered, never appeared. The v1.13.0 claim that "the same package
+  name loads the V1 adapter under V1 and the V2 adapter under V2" was simply false on the
+  V1 side: both runtimes probe the same key, so one key must satisfy both validators.
+  The embarrassing part: the flagship V2 release broke the platform the plugin is named
+  after, and the gap survived because the gates ran the git checkout, never a registry
+  install. Fix: a combined entry (`entry.ts`, `{ id, server, setup }`) behind `main`,
+  `exports["."]`, and `exports["./server"]` — verified against both loaders' sources:
+  V1's `readV1Plugin` requires `server()` and tolerates unknown keys; V2's
+  `PluginModule` schema requires `id` + `setup` and tolerates unknown keys.
+- **The same audit found a second, latent resolution bug the reporter couldn't see:** the
+  *current* V2 line no longer probes `./server` — it resolves the bare package name
+  (`import.meta.resolve`, i.e. `exports["."]`), which pointed at the V1-only adapter. The
+  combined entry closes that one before it ever shipped a symptom.
+- **Fresh extractions failed 10 of 307 selftest checks (#20).** `selfExtract` copied only
+  `skills/`, `agents/`, `scripts/` — but the engine resolves `gold/assessor-gold.jsonl`
+  and `experiments/<preset>.json` from its own location, so every opencode install ran
+  with the gold-audit family and the experiment-preset check broken (297/307, the
+  reporter's exact count, reproduced). `gold/`, `experiments/`, and `docs/` now extract
+  (new-files-only, like everything else) and joined the update-manifest categories so
+  bundled updates to them can ever land. `docs/` closes the secondary finding: the
+  extracted skills cite `docs/*.md`, and the AGENTS.md block installed on every machine
+  promised "engram-docs — resolve to the extracted copy in `.opencode/`" — a reference
+  that had pointed at nothing since v0.x.
+
+**Verification** — live on opencode 1.18.4 (XDG-isolated): registry 1.13.1 reproduces the
+startup error verbatim; the patched package loads, extracts all six directories, and the
+extracted tree passes 307/307 (scripts-only tree: 297/307, matching the report). Selftest
+delta: none (307 → 307 — engine untouched but for the version constant); vitest 215 → 224,
+all nine new checks mutation-tested (each fails when its own fix is reverted, including
+the two exports-map regressions).
 
 §7.5 ran against shipped v1.13.0 and found what every pre-release gate had walked past.
 Patched immediately per protocol.

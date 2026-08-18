@@ -15,7 +15,8 @@
  * pseudo-command → no notification.
  *
  * State machine: pending → in_progress → (file deleted on completion)
- * Categories: skills, agents, scripts, command — each with { added, skipped } arrays.
+ * Categories: skills, agents, scripts, commands, gold, experiments, docs —
+ * each with { added, skipped } arrays.
  *
  * Manual mode saves per-file checkpoints by removing processed files from skipped[]
  * via node -e (see pseudo-command template in index.ts).
@@ -30,6 +31,13 @@ const SKILLS_DIR = "skills"
 const AGENTS_DIR = "agents"
 const SCRIPTS_DIR = "scripts"
 const COMMANDS_DIR = "commands"
+// Extracted since v1.13.2 (issue #20) — without these categories a version
+// bump would leave the extracted bundled gold set, experiment presets, and
+// docs stale forever: copyMissing never overwrites, so the update manifest
+// is the only path by which a changed bundled file can reach the target.
+const GOLD_DIR = "gold"
+const EXPERIMENTS_DIR = "experiments"
+const DOCS_DIR = "docs"
 
 /** Tracks files per category: added (new on disk), skipped (preserved, needs user decision). */
 export interface DiffEntry {
@@ -138,7 +146,7 @@ function transformAgentAt(filePath: string) {
 export function writeUpdateManifest(packageRoot: string, target: string, prevVersion: string, version: string) {
   const categories: Record<string, DiffEntry> = {}
   const remaining: string[] = []
-  for (const cat of [SKILLS_DIR, AGENTS_DIR, SCRIPTS_DIR, COMMANDS_DIR]) {
+  for (const cat of [SKILLS_DIR, AGENTS_DIR, SCRIPTS_DIR, COMMANDS_DIR, GOLD_DIR, EXPERIMENTS_DIR, DOCS_DIR]) {
     categories[cat] = diffCategory(packageRoot, target, cat)
     if (categories[cat].skipped.length) remaining.push(cat)
   }

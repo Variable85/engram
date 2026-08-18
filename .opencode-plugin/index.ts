@@ -23,6 +23,10 @@
  *   agents/   → merged + transformed (custom tools string → YAML objects,
  *              mode: subagent, hidden: true injected)
  *   scripts/  → merged (engram.py)
+ *   gold/     → merged (bundled assessor ground truth — engine reads it from
+ *              _plugin_root(), issue #20)
+ *   experiments/ → merged (pre-registered presets — same root)
+ *   docs/     → merged (cited by the extracted skills)
  *
  * Generated (always overwritten on extract):
  *   command/  → command/{learn,review-loop,coach}.md
@@ -153,7 +157,6 @@
  * What was deliberately removed
  * -----------------------------
  *
- *   docs/ from extract        → end users don't need internal docs.
  *   cfg.references            → all paths local; AGENTS.md covers it.
  *   cfg.permission            → no external paths remain post-extract.
  *   cfg.{skills,commands,agents} → disk discovery (bridge on first exec).

@@ -2,10 +2,12 @@
 
 OpenCode 2.0 — the `opencode2` binary, installed from `@opencode-ai/cli@beta` — replaces the
 V1 plugin API and [does not load V1 plugins](https://opencode.ai/v2/docs/migrate-v1). Engram
-ships **both entry points in one package**: the V1 adapter at the package root, a V2 adapter
-at `./server` (which the V2 runtime probes automatically) and `./v2` (the same file, for
-explicit reference). `opencode` and `opencode2` can run side by side against **one** Engram
-install — same extracted files, same learner data, byte-identical state.
+ships **one combined entry** (`{ id, server, setup }`) behind the package root, `main`, and
+`./server`: V1 calls `server()`, V2 calls `setup()`, and each validator tolerates the other's
+key (verified against both loaders' sources — see `.opencode-plugin/entry.ts`). The V2
+adapter alone stays reachable at `./v2` for explicit reference. `opencode` and `opencode2`
+can run side by side against **one** Engram install — same extracted files, same learner
+data, byte-identical state.
 
 > **Beta status.** OpenCode 2.0 is in beta and its plugin API is still moving. One known
 > beta limit from live testing: the free bundled models (`opencode/*-free`) drop the
@@ -27,8 +29,12 @@ In any `opencode.json` / `opencode.jsonc` (project or `~/.config/opencode/`), V2
 }
 ```
 
-V2 resolves npm packages by probing the `server` package export first, so the same package
-name loads the V1 adapter under V1 and the V2 adapter under V2 — no `/v2` suffix needed.
+Both runtimes land on the same combined entry, whichever key their line probes: V1 reads
+`exports["./server"]` first and falls back to `main`; V2's earlier next line probed
+`./server` too, and its current line resolves the bare name (`exports["."]`). All three keys
+point at the combined adapter, which both validators accept — this is what fixed issue #19,
+where `./server` pointed at a V2-only file and V1 npm installs failed with `must default
+export an object with server()`.
 Do **not** write `"opencode-engram-learning/v2"` in `plugins`: V2 never splits subpaths off
 config entries, and npm-package-arg parses that form as a *GitHub repo spec*, so it fails —
 confusingly. The bare package name is the whole story.
@@ -59,8 +65,9 @@ and writes the `AGENTS.md` block V2 discovers natively.
 
 ## What's identical to V1
 
-- The extraction target and layout (`skills/`, `agents/`, `scripts/`, `AGENTS.md`,
-  `.engram-version.jsonc`) — V1 and V2 resolve the same target and share it.
+- The extraction target and layout (`skills/`, `agents/`, `scripts/`, `gold/`,
+  `experiments/`, `docs/`, `AGENTS.md`, `.engram-version.jsonc`) — V1 and V2 resolve the
+  same target and share it.
 - Learner data (`~/.claude/learning/`) — untouched by the adapter split.
 - The update system: on a version bump you get the same session notification, the same
   `/engram-update` flow, the same deterministic `engram_update` tool with auto / per-file /

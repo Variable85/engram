@@ -6,9 +6,12 @@
  * contract — default export `{ id, server }` returning mutable-config hooks —
  * with `{ id, setup(ctx) }`, where ctx exposes typed domains (command, skill,
  * agent, tool, session, shell, event) with transform/hook/reload methods.
- * V2 does not load V1 plugins, and V1 does not load this file: the two entry
- * points coexist in this package (main → V1 index.ts, ./server + ./v2 →
- * this file).
+ * V2 does not load V1 plugins. Both runtimes resolve the same package keys
+ * (V1 probes exports["./server"] before main; V2 resolves exports["."] on
+ * its current line, ./server on the earlier one), so the package entry is
+ * the combined adapter in entry.ts — { id, server, setup } — and this file
+ * stays reachable directly via ./v2 and local-checkout configs. See entry.ts
+ * for the validator analysis (issue #19).
  *
  * Design rules for this adapter
  * -----------------------------

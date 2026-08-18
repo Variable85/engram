@@ -5,7 +5,8 @@
  * Copies plugin files from the npm package cache into OpenCode's config directory.
  * copyMissing() never overwrites existing files — preserves user edits across updates.
  *
- * Extraction (DIRS): skills/, agents/, scripts/ (new files only, never overwrite)
+ * Extraction (DIRS): skills/, agents/, scripts/, gold/, experiments/, docs/
+ * (new files only, never overwrite)
  * Generated (versioned marker block): AGENTS.md (project root or global)
  * Generated (always overwritten): command/, .engram-version.jsonc
  *
@@ -21,8 +22,15 @@ import { parseFrontmatter } from "./parse-frontmatter.js"
 import { writeUpdateManifest } from "./update.js"
 import { warnClaudeMdCollision } from "./claude-warning.js"
 
-/** Directory categories copied by selfExtract. docs/ deliberately excluded. */
-const DIRS = ["skills", "agents", "scripts"]
+/** Directory categories copied by selfExtract (new files only, never overwrite).
+ *  gold/ and experiments/ are engine dependencies, not learner data: engram.py
+ *  resolves both from its own location (_plugin_root()), so an extracted engine
+ *  without them fails 10 selftest checks — the gold-audit family and the
+ *  experiment-preset check (issue #20). The learner's own gold/local-gold.jsonl
+ *  lives in the state dir and is never touched by extraction. docs/ is cited by
+ *  the extracted skills (docs/05-affective-layers.md etc.) and promised by the
+ *  AGENTS.md block ("resolve to the extracted copy"), so it ships too. */
+const DIRS = ["skills", "agents", "scripts", "gold", "experiments", "docs"]
 
 const INSTRUCTIONS_TEXT = `# Engram — Evidence-Based Learning Engine
 

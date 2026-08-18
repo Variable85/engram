@@ -30,7 +30,10 @@ The Engram system consists of:
   skills/            — skill definitions (learn, review, coach)
   agents/            — subagent definitions (curriculum-architect, engram-assessor, artifact-smith)
   scripts/           — deterministic engine (engram.py)
-  command/           — command templates (learn, review-loop, coach)
+  commands/          — command templates (learn, review-loop, coach)
+  gold/              — bundled assessor ground truth (gold audit)
+  experiments/       — pre-registered experiment presets
+  docs/              — foundations the skills cite
 
 Parse the JSON. Locate field: state.
 
