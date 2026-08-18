@@ -179,7 +179,6 @@ import { createSessionStartHooks } from "../hooks/session-start.js"
 import { createShellEnvHook } from "../hooks/shell-env.js"
 import { selfExtract, getVERSION, syncProjectState } from "./install.js"
 import { createPluginLogger } from "./logger.js"
-import { engramUpdateTool } from "./update-tool.js"
 import { UPDATE_DESCRIPTION, UPDATE_TEMPLATE } from "./update-command.js"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -215,6 +214,14 @@ Arguments: $ARGUMENTS`,
 }
 
 export const server: Plugin = async ({ client, $, directory }) => {
+  // Loaded here, NOT at module top: update-tool.ts value-imports
+  // @opencode-ai/plugin (and calls tool() at module scope), and this module
+  // sits in the combined entry's static graph. A static import links the V1
+  // SDK into the V2 load path, where the specifier may be absent or its root
+  // export reshuffled (it has moved once already) — an ESM link error there
+  // kills the plugin before any try/catch runs. server() only ever executes
+  // under V1, the runtime that ships the SDK.
+  const { engramUpdateTool } = await import("./update-tool.js")
   const cwd = directory || process.cwd()
   const sessionStartHooks = createSessionStartHooks($, root, client)
   const shellEnvHooks = createShellEnvHook(root)

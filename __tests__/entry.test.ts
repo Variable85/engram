@@ -96,6 +96,44 @@ describe("issue #19 — combined entry satisfies every probe chain", () => {
     v2Validate(mod)
   })
 
+  it("the combined entry's STATIC module graph never links @opencode-ai/plugin", () => {
+    // Review finding (HIGH, v1.13.2): update-tool.ts value-imports the V1 SDK
+    // and calls tool() at module scope. A static path from entry.ts to it
+    // links the SDK into the V2 load path, where the specifier can be absent
+    // or its root export reshuffled (it moved once between beta lines) — an
+    // ESM link error there kills the plugin before any try/catch runs.
+    // The SDK must only load lazily, inside server(), which V1 alone calls.
+    // Walked from the source, not from memory: every static import/export-from
+    // reachable from entry.ts, comments stripped so a doc-comment code sample
+    // cannot satisfy or trip the check.
+    const seen = new Set<string>()
+    const bare = new Set<string>()
+    const walk = (file: string) => {
+      if (seen.has(file)) return
+      seen.add(file)
+      const src = readFileSync(file, "utf-8").replace(/\/\*[\s\S]*?\*\//g, "")
+      const specs: string[] = []
+      for (const re of [
+        /^import\s+(?!type\b)[^;'"]*?from\s*["']([^"']+)["']/gm,
+        /^import\s*["']([^"']+)["']/gm,
+        /^export\s+[^;'"]*?from\s*["']([^"']+)["']/gm,
+      ]) {
+        for (let m = re.exec(src); m; m = re.exec(src)) specs.push(m[1])
+      }
+      for (const spec of specs) {
+        if (spec.startsWith(".")) {
+          const next = resolve(file, "..", spec.replace(/\.js$/, ".ts"))
+          if (existsSync(next)) walk(next)
+        } else {
+          bare.add(spec)
+        }
+      }
+    }
+    walk(resolve(pkgRoot, ".opencode-plugin", "entry.ts"))
+    expect(seen.size).toBeGreaterThan(5) // the walker actually walked
+    expect([...bare].filter(s => s.startsWith("@opencode-ai"))).toEqual([])
+  })
+
   it("the combined entry reuses the real adapters, not copies", async () => {
     const entry = await import(resolve(pkgRoot, ".opencode-plugin", "entry.ts"))
     const v1 = await import(resolve(pkgRoot, ".opencode-plugin", "index.ts"))

@@ -103,4 +103,76 @@ describe("issue #20 — selfExtract ships gold/, experiments/, docs/", () => {
     selfExtract(pkg, tmp, "1.13.2")
     for (const f of allSkipped) expect(existsSync(resolve(target, f)), `${f} restored`).toBe(true)
   })
+
+  it("docs/ extracts top-level only — internal subdirectories stay out of tree AND manifest", () => {
+    mkdirSync(resolve(pkg, "docs", "release-audits"), { recursive: true })
+    writeFileSync(resolve(pkg, "docs", "release-audits", "v1.10.0-numbers-audit.md"), "internal")
+    const target = resolve(tmp, ".opencode")
+
+    selfExtract(pkg, tmp, "1.13.2")
+    expect(existsSync(resolve(target, "docs", "05-affective-layers.md"))).toBe(true)
+    expect(existsSync(resolve(target, "docs", "release-audits"))).toBe(false)
+
+    // The manifest walk must agree with the copy — otherwise every bump
+    // lists "added" files extraction never places.
+    rmSync(resolve(target, ".engram-version.jsonc"))
+    writeFileSync(resolve(target, ".engram-version.jsonc"), JSON.stringify({ version: "0.9.0" }))
+    writeFileSync(resolve(target, "docs", "05-affective-layers.md"), "user-touched")
+    selfExtract(pkg, tmp, "1.13.2")
+    const manifest = JSON.parse(readFileSync(resolve(target, ".engram-update.jsonc"), "utf-8"))
+    const docsFiles = [...manifest.categories.docs.added, ...manifest.categories.docs.skipped]
+    expect(docsFiles).toContain("docs/05-affective-layers.md")
+    expect(docsFiles.some((f: string) => f.includes("release-audits"))).toBe(false)
+  })
+})
+
+describe("upgrade honesty — agents diff through the extraction transform", () => {
+  let tmp: string
+  let pkg: string
+  const AGENT_SRC = `---\nname: engram-assessor\ndescription: blind grader\ntools: Read, Bash\n---\n\nGrade blindly.\n`
+
+  beforeEach(() => {
+    tmp = mkdtempSync(resolve(tmpdir(), "engram-test-"))
+    writeFileSync(resolve(tmp, "opencode.jsonc"), "{}")
+    pkg = resolve(tmp, "pkg")
+    mkdirSync(resolve(pkg, "agents"), { recursive: true })
+    writeFileSync(resolve(pkg, "agents", "engram-assessor.md"), AGENT_SRC)
+    mkdirSync(resolve(pkg, "scripts"), { recursive: true })
+    writeFileSync(resolve(pkg, "scripts", "engram.py"), "engine-v2")
+    writeFileSync(resolve(pkg, "package.json"), JSON.stringify({ version: "1.13.2" }))
+  })
+  afterEach(() => rmSync(tmp, { recursive: true }))
+
+  it("an UNCHANGED agent is not manifested just because extraction transformed it", () => {
+    // Review finding (MED): the extracted copy can never byte-match the
+    // packaged source (mode: subagent etc. injected), so a raw compare told
+    // every upgrader all agents were "preserved, needs decision" on every
+    // bump — and rendered the transform backwards in the diff.
+    selfExtract(pkg, tmp, "1.13.2")
+    const target = resolve(tmp, ".opencode")
+    writeFileSync(resolve(target, ".engram-version.jsonc"), JSON.stringify({ version: "1.13.1" }))
+    writeFileSync(resolve(pkg, "scripts", "engram.py"), "engine-v3") // force a manifest
+
+    selfExtract(pkg, tmp, "1.13.2")
+    const manifest = JSON.parse(readFileSync(resolve(target, ".engram-update.jsonc"), "utf-8"))
+    expect(manifest.categories.agents.skipped).toEqual([])
+    expect(manifest.remaining).not.toContain("agents")
+  })
+
+  it("a genuinely changed agent IS manifested, and its diff never shows the transform backwards", () => {
+    selfExtract(pkg, tmp, "1.13.2")
+    const target = resolve(tmp, ".opencode")
+    writeFileSync(resolve(target, ".engram-version.jsonc"), JSON.stringify({ version: "1.13.1" }))
+    writeFileSync(resolve(pkg, "agents", "engram-assessor.md"),
+      AGENT_SRC.replace("Grade blindly.", "Grade blindly. Round down."))
+
+    selfExtract(pkg, tmp, "1.13.2")
+    const manifest = JSON.parse(readFileSync(resolve(target, ".engram-update.jsonc"), "utf-8"))
+    expect(manifest.categories.agents.skipped).toEqual(["agents/engram-assessor.md"])
+
+    const diff = readFileSync(resolve(target, ".engram-update.diff"), "utf-8")
+    expect(diff).toContain("Round down.")
+    expect(diff).not.toContain("-mode: subagent")
+    expect(diff).not.toContain("-hidden: true")
+  })
 })

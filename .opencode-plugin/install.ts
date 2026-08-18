@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFi
 import { resolve, basename } from "node:path"
 import { execSync } from "node:child_process"
 import { parseFrontmatter } from "./parse-frontmatter.js"
-import { writeUpdateManifest } from "./update.js"
+import { writeUpdateManifest, MANIFEST_CATEGORIES, SHALLOW_CATEGORIES } from "./update.js"
 import { warnClaudeMdCollision } from "./claude-warning.js"
 
 /** Directory categories copied by selfExtract (new files only, never overwrite).
@@ -29,8 +29,13 @@ import { warnClaudeMdCollision } from "./claude-warning.js"
  *  experiment-preset check (issue #20). The learner's own gold/local-gold.jsonl
  *  lives in the state dir and is never touched by extraction. docs/ is cited by
  *  the extracted skills (docs/05-affective-layers.md etc.) and promised by the
- *  AGENTS.md block ("resolve to the extracted copy"), so it ships too. */
-const DIRS = ["skills", "agents", "scripts", "gold", "experiments", "docs"]
+ *  AGENTS.md block ("resolve to the extracted copy"), so it ships too —
+ *  top-level files only (SHALLOW_CATEGORIES): the internal subdirectories are
+ *  process records no skill cites.
+ *  DERIVED from the manifest category list so auto update can never delete a
+ *  manifested file this loop does not know how to restore ("commands" is the
+ *  one category regenerated elsewhere — generateCommands). */
+const DIRS = MANIFEST_CATEGORIES.filter(d => d !== "commands")
 
 const INSTRUCTIONS_TEXT = `# Engram — Evidence-Based Learning Engine
 
@@ -337,15 +342,19 @@ export function needsExtract(target: string, version: string): boolean {
   return prev !== version
 }
 
-/** Recursively copies new files from src to dest. Never overwrites existing files (existsSync guard). No-ops silently if src absent. */
-export function copyMissing(src: string, dest: string) {
+/** Recursively copies new files from src to dest. Never overwrites existing
+ *  files (existsSync guard). No-ops silently if src absent. shallow=true
+ *  copies top-level files only (SHALLOW_CATEGORIES — must stay in step with
+ *  walkFiles in update.ts, or the manifest lists files extraction never
+ *  places). */
+export function copyMissing(src: string, dest: string, shallow = false) {
   if (!existsSync(src)) return
   mkdirSync(dest, { recursive: true })
   for (const entry of readdirSync(src, { withFileTypes: true })) {
     const srcPath = resolve(src, entry.name)
     const destPath = resolve(dest, entry.name)
     if (entry.isDirectory()) {
-      copyMissing(srcPath, destPath)
+      if (!shallow) copyMissing(srcPath, destPath)
     } else if (!existsSync(destPath)) {
       copyFileSync(srcPath, destPath)
     }
@@ -472,7 +481,7 @@ export function selfExtract(packageRoot: string, directory: string, version: str
     for (const dir of DIRS) {
       const srcDir = resolve(packageRoot, dir)
       const destDir = resolve(target, dir)
-      copyMissing(srcDir, destDir)
+      copyMissing(srcDir, destDir, SHALLOW_CATEGORIES.has(dir))
       if (existsSync(srcDir)) {
         log(`Engram: merged ${dir} to ${destDir}`)
       }
